@@ -1,0 +1,280 @@
+// Versão 3 da sintaxe do Protocol Buffers
+syntax = "proto3";
+
+// Namespace da API, com versão para futuras evoluções.
+package chat_api.v1;
+
+option java_package = "br.com.meuprojeto.chat.v1"; 
+option java_multiple_files = true;
+option java_outer_classname = "ChatApiProto";
+
+// Tipos padrão do Google para timestamps e campos opcionais.
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
+
+
+// ===================================================================
+// Definição do Serviço (Seu "Frontend Service")
+// ===================================================================
+
+service ChatFrontendService {
+  
+  // === FLUXO 1: MENSAGEM DE TEXTO ===
+  // Cliente envia um payload de texto. API enfileira no Broker e responde.
+  rpc SendTextMessage(SendTextMessageRequest) returns (SendTextMessageResponse);
+
+  // === FLUXO 2: ARQUIVO (FASE 1 - INÍCIO) ===
+  // Cliente anuncia o upload de mídia e envia metadados.
+  // API gera file_id, salva como "Pendente" e retorna URLs pré-assinadas.
+  rpc PrepareMediaUpload(PrepareMediaUploadRequest) returns (PrepareMediaUploadResponse);
+
+  // === FLUXO 2: ARQUIVO (FASE 2 - CONCLUSÃO) ===
+  // Cliente notifica que terminou o upload direto para o Object Storage.
+  // API valida, atualiza status para "Completo" e publica no Broker.
+  rpc CompleteMediaUpload(CompleteMediaUploadRequest) returns (CompleteMediaUploadResponse);
+
+  // === FLUXO DE LEITURA (HISTÓRICO) ===
+  // Cliente busca o histórico de mensagens de uma conversa (paginado).
+  rpc GetMessages(GetMessagesRequest) returns (GetMessagesResponse);
+
+  // === FLUXO DE LEITURA (LISTA DE CHATS) ===
+  // Cliente busca sua lista de conversas (paginado).
+  rpc GetConversations(GetConversationsRequest) returns (GetConversationsResponse);
+
+  // === FLUXO DE TEMPO REAL (RECEBIMENTO) ===
+  // Cliente se conecta para receber eventos em tempo real (novas mensagens,
+  // status, etc.) que vêm do "Notification / Push Service".
+  rpc SubscribeToEvents(SubscribeToEventsRequest) returns (stream ServerEvent);
+}
+
+
+// ===================================================================
+// Mensagens RPC: SendTextMessage
+// ===================================================================
+
+message SendTextMessageRequest {
+  // ID de idempotência gerado pelo Cliente, conforme especificado.
+  string client_message_id = 1;
+  
+  // ID da conversa (1-para-1 ou grupo) de destino.
+  string conversation_id = 2;
+
+  // O corpo da mensagem de texto.
+  string text_body = 3;
+
+  // Opcional: ID da mensagem à qual esta é uma resposta.
+  google.protobuf.StringValue reply_to_message_id = 4;
+}
+
+message SendTextMessageResponse {
+  // O ID canônico da mensagem (gerado ou validado pelo servidor).
+  string server_message_id = 1;
+  
+  // Timestamp de quando a API aceitou e enfileirou a mensagem.
+  google.protobuf.Timestamp accepted_at = 2;
+}
+
+
+// ===================================================================
+// Mensagens RPC: PrepareMediaUpload (Fase 1)
+// ===================================================================
+
+message PrepareMediaUploadRequest {
+  // ID de idempotência gerado pelo Cliente para a *mensagem*.
+  string client_message_id = 1;
+  
+  // ID da conversa de destino.
+  string conversation_id = 2;
+
+  // Metadados do arquivo que será enviado.
+  FileInfo file_info = 3;
+
+  // Opcional: ID da mensagem à qual esta é uma resposta.
+  google.protobuf.StringValue reply_to_message_id = 4;
+  
+  // Opcional: Legenda para a mídia.
+  google.protobuf.StringValue caption = 5;
+}
+
+// Metadados do arquivo.
+message FileInfo {
+  string file_name = 1;   // ex: "foto.jpg"
+  string mime_type = 2;   // ex: "image/jpeg"
+  int64 size_bytes = 3; // Tamanho total
+}
+
+message PrepareMediaUploadResponse {
+  // O ID do arquivo gerado pela API (salvo no BD como "Pendente").
+  string server_file_id = 1;
+
+  // O ID do Upload Multipart (necessário para MinIO/S3).
+  string upload_id = 2;
+
+  // Lista de URLs pré-assinadas para onde o cliente enviará os chunks (PUT).
+  repeated string presigned_urls = 3;
+}
+
+
+// ===================================================================
+// Mensagens RPC: CompleteMediaUpload (Fase 2)
+// ===================================================================
+
+message CompleteMediaUploadRequest {
+  // O ID do arquivo retornado pela API na Fase 1.
+  string server_file_id = 1;
+  
+  // O ID do Upload Multipart retornado pela API na Fase 1.
+  string upload_id = 2;
+  
+  // Lista de partes enviadas pelo cliente.
+  // Essencial para o MinIO/S3 validar e montar o arquivo.
+  repeated UploadedPart parts = 3;
+}
+
+// Informação de uma parte (chunk) enviada.
+message UploadedPart {
+  int32 part_number = 1; // O número de ordem do chunk.
+  string etag = 2;       // O ETag retornado pelo MinIO/S3 após o PUT do chunk.
+}
+
+message CompleteMediaUploadResponse {
+  // O ID canônico da *mensagem de chat* (gerado após publicar no Broker).
+  string server_message_id = 1;
+  
+  // Timestamp de quando a API aceitou a conclusão.
+  google.protobuf.Timestamp accepted_at = 2;
+
+  // A URL final e permanente do arquivo no Object Storage.
+  string final_media_url = 3;
+}
+
+
+// ===================================================================
+// Mensagens RPC: GetMessages (Histórico)
+// ===================================================================
+
+message GetMessagesRequest {
+  string conversation_id = 1;
+  int32 page_size = 2; // Quantos por página
+  
+  // Token de paginação (da resposta anterior) para buscar a próxima página.
+  string page_token = 3; 
+}
+
+message GetMessagesResponse {
+  repeated Message messages = 1;
+  string next_page_token = 2; // Token para a próxima página
+}
+
+
+// ===================================================================
+// Mensagens RPC: GetConversations (Lista de Chats)
+// ===================================================================
+
+message GetConversationsRequest {
+  int32 page_size = 1;
+  string page_token = 2;
+}
+
+message GetConversationsResponse {
+  repeated ConversationInfo conversations = 1;
+  string next_page_token = 2;
+}
+
+
+// ===================================================================
+// Mensagens RPC: SubscribeToEvents (Tempo Real)
+// ===================================================================
+
+message SubscribeToEventsRequest {
+  // Opcional: ID do último evento que o cliente recebeu,
+  // para o servidor poder enviar o que foi perdido.
+  google.protobuf.StringValue last_event_id = 1;
+}
+
+// O servidor enviará um stream desses eventos.
+message ServerEvent {
+  string event_id = 1; // Para sincronização
+  google.protobuf.Timestamp event_time = 2;
+
+  oneof payload {
+    // Uma nova mensagem (de texto ou mídia).
+    Message new_message = 3;
+
+    // O status de uma mensagem mudou (ex: "enviado", "lido").
+    MessageStatusUpdate status_update = 4;
+
+    // O status de um usuário mudou (ex: "online", "digitando...").
+    // Vem do "Consulta Presence Service".
+    PresenceUpdate presence_update = 5;
+  }
+}
+
+
+// ===================================================================
+// Tipos de Dados Comuns (Modelos de Dados)
+// ===================================================================
+
+// A representação canônica de uma Mensagem (como está na "Persistência").
+message Message {
+  string id = 1;
+  string conversation_id = 2;
+  string sender_id = 3;
+  Content content = 4;
+  google.protobuf.Timestamp sent_at = 5;
+  MessageStatus status = 6;
+  google.protobuf.StringValue reply_to_message_id = 7;
+}
+
+// O 'Payload' de uma mensagem (o que ela contém).
+message Content {
+  oneof content_type {
+    TextContent text = 1;
+    MediaContent media = 2;
+  }
+}
+
+message TextContent {
+  string body = 1;
+}
+
+message MediaContent {
+  string media_url = 1;   // URL permanente (ex: "minio/bucket/file_id")
+  string mime_type = 2;
+  string file_name = 3;
+  int64 size_bytes = 4;
+  google.protobuf.StringValue caption = 5;
+}
+
+// Status de uma mensagem (para "entregue", "lido").
+enum MessageStatus {
+  STATUS_UNSPECIFIED = 0;
+  SENT = 1;      // Aceito pelo servidor
+  DELIVERED = 2; // Entregue ao dispositivo do destinatário
+  READ = 3;      // Visto pelo destinatário
+  FAILED = 4;    // Falha no envio (ex: Conector falhou)
+}
+
+// Um evento de atualização de status (para o stream).
+message MessageStatusUpdate {
+  string message_id = 1;
+  MessageStatus new_status = 2;
+  string user_id_affected = 3; // O usuário que leu/recebeu
+  google.protobuf.Timestamp updated_at = 4;
+}
+
+// Um evento de atualização de presença (para o stream).
+message PresenceUpdate {
+  string user_id = 1;
+  bool is_online = 2;
+  google.protobuf.Timestamp last_seen_at = 3;
+}
+
+// Informações resumidas de uma conversa (para a lista).
+message ConversationInfo {
+  string id = 1;
+  string name = 2; // ex: "João Silva" ou "Grupo da Família"
+  string avatar_url = 3;
+  Message last_message_preview = 4;
+  int32 unread_count = 5;
+}
