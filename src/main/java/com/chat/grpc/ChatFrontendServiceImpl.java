@@ -2,8 +2,8 @@ package com.chat.grpc;
 
 import com.google.protobuf.Timestamp;
 
-import io.github.lognet.grpc.server.service.GrpcService;
 import org.slf4j.LoggerFactory;
+import org.springframework.grpc.server.service.GrpcService;
 
 import br.com.meuprojeto.chat.v1.CompleteMediaUploadRequest;
 import br.com.meuprojeto.chat.v1.CompleteMediaUploadResponse;
