@@ -4,6 +4,9 @@ import static io.grpc.MethodDescriptor.generateFullMethodName;
 
 /**
  */
+@javax.annotation.Generated(
+    value = "by gRPC proto compiler (version 1.64.0)",
+    comments = "Source: chat_api.v1.proto")
 @io.grpc.stub.annotations.GrpcGenerated
 public final class ChatFrontendServiceGrpc {
 
@@ -210,21 +213,6 @@ public final class ChatFrontendServiceGrpc {
         }
       };
     return ChatFrontendServiceStub.newStub(factory, channel);
-  }
-
-  /**
-   * Creates a new blocking-style stub that supports all types of calls on the service
-   */
-  public static ChatFrontendServiceBlockingV2Stub newBlockingV2Stub(
-      io.grpc.Channel channel) {
-    io.grpc.stub.AbstractStub.StubFactory<ChatFrontendServiceBlockingV2Stub> factory =
-      new io.grpc.stub.AbstractStub.StubFactory<ChatFrontendServiceBlockingV2Stub>() {
-        @java.lang.Override
-        public ChatFrontendServiceBlockingV2Stub newStub(io.grpc.Channel channel, io.grpc.CallOptions callOptions) {
-          return new ChatFrontendServiceBlockingV2Stub(channel, callOptions);
-        }
-      };
-    return ChatFrontendServiceBlockingV2Stub.newStub(factory, channel);
   }
 
   /**
@@ -436,94 +424,6 @@ public final class ChatFrontendServiceGrpc {
 
   /**
    * A stub to allow clients to do synchronous rpc calls to service ChatFrontendService.
-   */
-  public static final class ChatFrontendServiceBlockingV2Stub
-      extends io.grpc.stub.AbstractBlockingStub<ChatFrontendServiceBlockingV2Stub> {
-    private ChatFrontendServiceBlockingV2Stub(
-        io.grpc.Channel channel, io.grpc.CallOptions callOptions) {
-      super(channel, callOptions);
-    }
-
-    @java.lang.Override
-    protected ChatFrontendServiceBlockingV2Stub build(
-        io.grpc.Channel channel, io.grpc.CallOptions callOptions) {
-      return new ChatFrontendServiceBlockingV2Stub(channel, callOptions);
-    }
-
-    /**
-     * <pre>
-     * === FLUXO 1: MENSAGEM DE TEXTO ===
-     * Cliente envia um payload de texto. API enfileira no Broker e responde.
-     * </pre>
-     */
-    public br.com.meuprojeto.chat.v1.SendTextMessageResponse sendTextMessage(br.com.meuprojeto.chat.v1.SendTextMessageRequest request) {
-      return io.grpc.stub.ClientCalls.blockingUnaryCall(
-          getChannel(), getSendTextMessageMethod(), getCallOptions(), request);
-    }
-
-    /**
-     * <pre>
-     * === FLUXO 2: ARQUIVO (FASE 1 - INÍCIO) ===
-     * Cliente anuncia o upload de mídia e envia metadados.
-     * API gera file_id, salva como "Pendente" e retorna URLs pré-assinadas.
-     * </pre>
-     */
-    public br.com.meuprojeto.chat.v1.PrepareMediaUploadResponse prepareMediaUpload(br.com.meuprojeto.chat.v1.PrepareMediaUploadRequest request) {
-      return io.grpc.stub.ClientCalls.blockingUnaryCall(
-          getChannel(), getPrepareMediaUploadMethod(), getCallOptions(), request);
-    }
-
-    /**
-     * <pre>
-     * === FLUXO 2: ARQUIVO (FASE 2 - CONCLUSÃO) ===
-     * Cliente notifica que terminou o upload direto para o Object Storage.
-     * API valida, atualiza status para "Completo" e publica no Broker.
-     * </pre>
-     */
-    public br.com.meuprojeto.chat.v1.CompleteMediaUploadResponse completeMediaUpload(br.com.meuprojeto.chat.v1.CompleteMediaUploadRequest request) {
-      return io.grpc.stub.ClientCalls.blockingUnaryCall(
-          getChannel(), getCompleteMediaUploadMethod(), getCallOptions(), request);
-    }
-
-    /**
-     * <pre>
-     * === FLUXO DE LEITURA (HISTÓRICO) ===
-     * Cliente busca o histórico de mensagens de uma conversa (paginado).
-     * </pre>
-     */
-    public br.com.meuprojeto.chat.v1.GetMessagesResponse getMessages(br.com.meuprojeto.chat.v1.GetMessagesRequest request) {
-      return io.grpc.stub.ClientCalls.blockingUnaryCall(
-          getChannel(), getGetMessagesMethod(), getCallOptions(), request);
-    }
-
-    /**
-     * <pre>
-     * === FLUXO DE LEITURA (LISTA DE CHATS) ===
-     * Cliente busca sua lista de conversas (paginado).
-     * </pre>
-     */
-    public br.com.meuprojeto.chat.v1.GetConversationsResponse getConversations(br.com.meuprojeto.chat.v1.GetConversationsRequest request) {
-      return io.grpc.stub.ClientCalls.blockingUnaryCall(
-          getChannel(), getGetConversationsMethod(), getCallOptions(), request);
-    }
-
-    /**
-     * <pre>
-     * === FLUXO DE TEMPO REAL (RECEBIMENTO) ===
-     * Cliente se conecta para receber eventos em tempo real (novas mensagens,
-     * status, etc.) que vêm do "Notification / Push Service".
-     * </pre>
-     */
-    @io.grpc.ExperimentalApi("https://github.com/grpc/grpc-java/issues/10918")
-    public io.grpc.stub.BlockingClientCall<?, br.com.meuprojeto.chat.v1.ServerEvent>
-        subscribeToEvents(br.com.meuprojeto.chat.v1.SubscribeToEventsRequest request) {
-      return io.grpc.stub.ClientCalls.blockingV2ServerStreamingCall(
-          getChannel(), getSubscribeToEventsMethod(), getCallOptions(), request);
-    }
-  }
-
-  /**
-   * A stub to allow clients to do limited synchronous rpc calls to service ChatFrontendService.
    */
   public static final class ChatFrontendServiceBlockingStub
       extends io.grpc.stub.AbstractBlockingStub<ChatFrontendServiceBlockingStub> {

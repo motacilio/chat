@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  # 1. Banco de Dados NoSQL
+  mongo-chat:
+    image: mongo:latest
+    container_name: mongo-chat
+    ports:
+      - "27017:27017" # Porta padrão do MongoDB
+    volumes:
+      - mongo-data:/data/db # Persistência de dados
+
+  # 2. Message Broker (com UI de gerenciamento)
+  rabbitmq-chat:
+    image: rabbitmq:3-management
+    container_name: rabbitmq-chat
+    ports:
+      - "5672:5672"   # Porta do AMQP (para o Spring)
+      - "15672:15672" # Porta da Interface Web de Admin
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq # Persistência de dados
+
+  # 3. Object Storage (S3 compatível, conforme PDF)
+  minio-chat:
+    image: minio/minio:latest
+    container_name: minio-chat
+    ports:
+      - "9000:9000"   # Porta da API S3
+      - "9001:9001"   # Porta da Interface Web
+    environment:
+      # Credenciais de admin (use algo seguro se for para produção)
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio-data:/data # Persistência de arquivos
+    command: server /data --console-address ":9001"
+
+# Volumes para persistir os dados
+volumes:
+  mongo-data:
+  rabbitmq-data:
+  minio-data:

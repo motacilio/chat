@@ -25,9 +25,8 @@ com\chat\grpc\ChatFrontendServiceImpl.class
 br\com\meuprojeto\chat\v1\CompleteMediaUploadRequest$1.class
 br\com\meuprojeto\chat\v1\Content.class
 br\com\meuprojeto\chat\v1\MessageStatusUpdate$1.class
-br\com\meuprojeto\chat\v1\ServerEvent.class
+br\com\meuprojeto\chat\v1\ServerEvent$2.class
 br\com\meuprojeto\chat\v1\ChatFrontendServiceGrpc$ChatFrontendServiceBaseDescriptorSupplier.class
-br\com\meuprojeto\chat\v1\ServerEvent$Builder.class
 br\com\meuprojeto\chat\v1\CompleteMediaUploadRequest$Builder.class
 br\com\meuprojeto\chat\v1\CompleteMediaUploadResponse$1.class
 br\com\meuprojeto\chat\v1\ChatApiProto.class
@@ -44,6 +43,7 @@ br\com\meuprojeto\chat\v1\Content$ContentTypeCase.class
 br\com\meuprojeto\chat\v1\GetConversationsRequestOrBuilder.class
 br\com\meuprojeto\chat\v1\GetMessagesResponseOrBuilder.class
 br\com\meuprojeto\chat\v1\Message.class
+br\com\meuprojeto\chat\v1\Content$2.class
 br\com\meuprojeto\chat\v1\GetConversationsRequest$Builder.class
 br\com\meuprojeto\chat\v1\FileInfo$1.class
 com\chat\ChatApiApplication.class
@@ -58,7 +58,6 @@ br\com\meuprojeto\chat\v1\PrepareMediaUploadResponse$Builder.class
 br\com\meuprojeto\chat\v1\ServerEvent$1.class
 br\com\meuprojeto\chat\v1\GetMessagesResponse$Builder.class
 br\com\meuprojeto\chat\v1\ChatFrontendServiceGrpc$MethodHandlers.class
-br\com\meuprojeto\chat\v1\ServerEvent$PayloadCase.class
 br\com\meuprojeto\chat\v1\SendTextMessageResponse$Builder.class
 br\com\meuprojeto\chat\v1\SendTextMessageResponse.class
 br\com\meuprojeto\chat\v1\PrepareMediaUploadResponseOrBuilder.class
@@ -81,6 +80,7 @@ br\com\meuprojeto\chat\v1\ChatFrontendServiceGrpc$ChatFrontendServiceMethodDescr
 br\com\meuprojeto\chat\v1\CompleteMediaUploadRequest.class
 br\com\meuprojeto\chat\v1\GetMessagesRequest$1.class
 br\com\meuprojeto\chat\v1\CompleteMediaUploadRequestOrBuilder.class
+com\chat\config\RabbitMQConfig.class
 br\com\meuprojeto\chat\v1\MediaContent$1.class
 br\com\meuprojeto\chat\v1\Content$Builder.class
 br\com\meuprojeto\chat\v1\MessageStatusUpdateOrBuilder.class
@@ -94,7 +94,6 @@ br\com\meuprojeto\chat\v1\TextContentOrBuilder.class
 br\com\meuprojeto\chat\v1\SubscribeToEventsRequest$Builder.class
 br\com\meuprojeto\chat\v1\SubscribeToEventsRequestOrBuilder.class
 br\com\meuprojeto\chat\v1\PresenceUpdateOrBuilder.class
-br\com\meuprojeto\chat\v1\ChatFrontendServiceGrpc$ChatFrontendServiceBlockingV2Stub.class
 br\com\meuprojeto\chat\v1\GetMessagesResponse.class
 br\com\meuprojeto\chat\v1\PrepareMediaUploadRequestOrBuilder.class
 br\com\meuprojeto\chat\v1\SendTextMessageRequest$Builder.class
@@ -102,5 +101,4 @@ br\com\meuprojeto\chat\v1\ChatFrontendServiceGrpc$ChatFrontendServiceFileDescrip
 br\com\meuprojeto\chat\v1\GetConversationsResponse$Builder.class
 br\com\meuprojeto\chat\v1\PrepareMediaUploadRequest$Builder.class
 br\com\meuprojeto\chat\v1\Message$1.class
-br\com\meuprojeto\chat\v1\ChatFrontendServiceGrpc$4.class
 br\com\meuprojeto\chat\v1\FileInfo$Builder.class

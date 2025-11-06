@@ -21,6 +21,7 @@ C:\Users\Marcos\Desktop\PROGRAM\JAVA\chatatt\chat\target\generated-sources\proto
 C:\Users\Marcos\Desktop\PROGRAM\JAVA\chatatt\chat\target\generated-sources\protobuf\java\br\com\meuprojeto\chat\v1\GetMessagesRequest.java
 C:\Users\Marcos\Desktop\PROGRAM\JAVA\chatatt\chat\target\generated-sources\protobuf\java\br\com\meuprojeto\chat\v1\TextContentOrBuilder.java
 C:\Users\Marcos\Desktop\PROGRAM\JAVA\chatatt\chat\target\generated-sources\protobuf\java\br\com\meuprojeto\chat\v1\CompleteMediaUploadResponseOrBuilder.java
+C:\Users\Marcos\Desktop\PROGRAM\JAVA\chatatt\chat\src\main\java\com\chat\config\RabbitMQConfig.java
 C:\Users\Marcos\Desktop\PROGRAM\JAVA\chatatt\chat\target\generated-sources\protobuf\java\br\com\meuprojeto\chat\v1\ConversationInfoOrBuilder.java
 C:\Users\Marcos\Desktop\PROGRAM\JAVA\chatatt\chat\target\generated-sources\protobuf\java\br\com\meuprojeto\chat\v1\PrepareMediaUploadResponse.java
 C:\Users\Marcos\Desktop\PROGRAM\JAVA\chatatt\chat\target\generated-sources\protobuf\java\br\com\meuprojeto\chat\v1\GetConversationsRequest.java

@@ -1,9 +1,14 @@
 package com.chat.grpc;
 
+import com.chat.config.RabbitMQConfig;
 import com.google.protobuf.Timestamp;
 
+import java.util.UUID;
+
+import org.lognet.springboot.grpc.GRpcService;
 import org.slf4j.LoggerFactory;
-import org.springframework.grpc.server.service.GrpcService;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import br.com.meuprojeto.chat.v1.CompleteMediaUploadRequest;
 import br.com.meuprojeto.chat.v1.CompleteMediaUploadResponse;
@@ -21,14 +26,14 @@ import br.com.meuprojeto.chat.v1.ChatFrontendServiceGrpc.ChatFrontendServiceImpl
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 
-@GrpcService
+@GRpcService
 public class ChatFrontendServiceImpl extends ChatFrontendServiceImplBase {
 
     private static final org.slf4j.Logger log = LoggerFactory.getLogger(ChatFrontendServiceImpl.class);
 
     // TODO: INJETAR RABBITTEMPLATE do SPRING AMQP AQUI
-    // @Autowired
-    // private RabbitTemplate rabbittemplate;
+    @Autowired
+    private RabbitTemplate rabbittemplate;
 
 
     @Override
@@ -37,26 +42,49 @@ public class ChatFrontendServiceImpl extends ChatFrontendServiceImplBase {
         
         String clientId = request.getClientMessageId();
         String conversationId = request.getConversationId();
-            
         
-         log.info("[FRONTEND] Recebida SendTextMessage (id: {}) para conversa {}", clientId, conversationId);
+        // ID DE RASTREAMENTO PARA OS LOGS
+        String traceId = UUID.randomUUID().toString().substring(0, 8);
+
+        log.info("[trace_id={}] Recebida SendTextMessage (id: {}) para conversa {}", traceId, clientId, conversationId);
          
          
         // 2. Enfileirar no Broker (PRÓXIMO PASSO)
         // Por enquanto, vamos apenas simular.
         // rabbitTemplate.convertAndSend("exchange_mensagens", "routing_key_texto", request);
 
-        Timestamp acceptedTimestamp = Timestamp.newBuilder()
-                                    .setSeconds(System.currentTimeMillis() / 1000)
-                                    .build();
 
-        SendTextMessageResponse response = SendTextMessageResponse.newBuilder()
-                                        .setServerMessageId(clientId)
-                                        .setAcceptedAt(acceptedTimestamp)
-                                        .build();
+        try{
 
-        responseObserver.onNext(response);
-        responseObserver.onCompleted();
+            rabbittemplate.convertAndSend(
+                RabbitMQConfig.EXCHANGE_MENSAGENS,
+                "rota.texto." + conversationId,
+                request
+            );
+
+            log.info("[trace_id={}] Mensagem {} enfileirada com sucesso.", traceId, clientId);
+
+            Timestamp acceptedTimestamp = Timestamp.newBuilder()
+                        .setSeconds(System.currentTimeMillis() / 1000)
+                        .build();
+
+            SendTextMessageResponse response = SendTextMessageResponse.newBuilder()
+                        .setServerMessageId(clientId)
+                        .setAcceptedAt(acceptedTimestamp)
+                        .build();
+
+            responseObserver.onNext(response);
+            responseObserver.onCompleted();
+
+        } catch (Exception e) {
+            // Caso o rabbitmq esteja fora do ar
+            log.error("[trace_id={}] Falha ao enfileirar a mensagem (id: {}): {}", traceId, clientId, e.getMessage());
+            responseObserver.onError(Status.INTERNAL
+                                    .withDescription("Falha ao processar mensagem: " + e.getMessage())
+                                    .asRuntimeException());
+        }
+
+     
     }
 
     
