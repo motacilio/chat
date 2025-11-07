@@ -31,7 +31,7 @@ public class ChatFrontendServiceImpl extends ChatFrontendServiceImplBase {
 
     private static final org.slf4j.Logger log = LoggerFactory.getLogger(ChatFrontendServiceImpl.class);
 
-    // TODO: INJETAR RABBITTEMPLATE do SPRING AMQP AQUI
+    
     @Autowired
     private RabbitTemplate rabbittemplate;
 
@@ -56,10 +56,12 @@ public class ChatFrontendServiceImpl extends ChatFrontendServiceImplBase {
 
         try{
 
+            byte[] payloadBinario = request.toByteArray();
+
             rabbittemplate.convertAndSend(
                 RabbitMQConfig.EXCHANGE_MENSAGENS,
                 "rota.texto." + conversationId,
-                request
+                payloadBinario
             );
 
             log.info("[trace_id={}] Mensagem {} enfileirada com sucesso.", traceId, clientId);
