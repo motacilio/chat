@@ -20,8 +20,6 @@ public class MensagemWorker {
     
     private static final Logger log = LoggerFactory.getLogger(MensagemWorker.class);
 
-
-    // TODO: Injetar o repositório MONGODB aqui
     @Autowired
     private ChatMessageRepository chatMessageRepository;
     
@@ -31,7 +29,7 @@ public class MensagemWorker {
         SendTextMessageRequest request;
         try{
             request = SendTextMessageRequest.parseFrom(payloadBinario);
-            // TODO: Salvar request no MONGODB
+
         }catch (Exception e) {
         log.error("[WORKER] Falha ao decodificar Protobuf: {}", e.getMessage());            // TODO: verificar possibilidade de mover para uma fila de erros - dead queue
             return;
@@ -63,7 +61,7 @@ public class MensagemWorker {
             //    TODO (PRÓXIMO PASSO):
             //    Chamar os Conectores (WhatsApp, Telegram) para enviar
             //    a mensagem ao destinatário
-            
+
         } catch (Exception e) {
             log.error("[WORKER] Falha ao salvar mensagem (id: {}) no MongoDB: {}", clientId, e.getMessage());
             // TODO: Re-enfileirar a mensagem (NACK) ou mover para fila de erro

@@ -1,0 +1,101 @@
+/*
+ * Common Types for Chat API v1
+ * 
+ * Purpose: Shared message definitions used across all services
+ * Version: chat_api.v1 (enables future versioning to chat_api.v2)
+ */
+
+syntax = "proto3";
+
+package chat_api.v1;
+
+option java_package = "com.chat.grpc.v1";
+option java_outer_classname = "CommonTypesProto";
+option java_multiple_files = true;
+
+// Timestamp type (standard Protobuf)
+import "google/protobuf/timestamp.proto";
+
+// ============================================================================
+// Enums
+// ============================================================================
+
+/**
+ * Message state lifecycle (FR-004)
+ * SENT → DELIVERED → READ
+ */
+enum MessageStatus {
+  MESSAGE_STATUS_UNSPECIFIED = 0;  // Default value (invalid state)
+  SENT = 1;                         // Accepted by server, persisted in MongoDB
+  DELIVERED = 2;                    // Reached recipient's device
+  READ = 3;                         // Opened by recipient
+}
+
+/**
+ * Conversation type (FR-009, FR-012)
+ */
+enum ConversationType {
+  CONVERSATION_TYPE_UNSPECIFIED = 0;  // Default value (invalid type)
+  PRIVATE = 1;                         // 1:1 conversation (exactly 2 participants)
+  GROUP = 2;                           // Group conversation (n participants)
+}
+
+// ============================================================================
+// Common Messages
+// ============================================================================
+
+/**
+ * User reference (embedded in other messages)
+ * Represents minimal user information for display purposes
+ */
+message UserInfo {
+  string user_id = 1;       // UUID (e.g., "550e8400-e29b-41d4-a716-446655440001")
+  string username = 2;      // Display name (e.g., "john_doe")
+}
+
+/**
+ * Message state transition event (embedded in Message)
+ * Tracks state lifecycle: SENT → DELIVERED → READ
+ */
+message MessageStateTransition {
+  MessageStatus state = 1;                      // Current state
+  google.protobuf.Timestamp timestamp = 2;      // When transition occurred
+  string recipient_id = 3;                      // Specific recipient (for group messages), empty for SENT
+}
+
+/**
+ * File metadata (embedded in Message) - P2 DEFERRED
+ * Represents file attachment information
+ */
+message FileMetadata {
+  string file_id = 1;               // UUID
+  string filename = 2;              // Original filename (e.g., "report.pdf")
+  int64 size_bytes = 3;             // File size (max 2 GB per FR-019)
+  string mime_type = 4;             // Content type (e.g., "application/pdf")
+  string storage_url = 5;           // MinIO reference (internal, not exposed to client)
+  google.protobuf.Timestamp uploaded_at = 6;  // Upload completion timestamp
+}
+
+/**
+ * Pagination metadata (used in list responses)
+ */
+message PaginationInfo {
+  int32 limit = 1;          // Items per page (default 50, max 100)
+  int32 offset = 2;         // Starting position (0-indexed)
+  int64 total_count = 3;    // Total items available (for UI page count)
+  bool has_more = 4;        // True if more pages available
+}
+
+// ============================================================================
+// Error Handling
+// ============================================================================
+
+/**
+ * Standard error response
+ * Returned as part of gRPC Status details
+ */
+message ErrorDetail {
+  string error_code = 1;            // Machine-readable code (e.g., "DUPLICATE_MESSAGE")
+  string error_description = 2;     // Human-readable message
+  map<string, string> metadata = 3; // Additional context (e.g., {"message_id": "uuid"})
+}

@@ -1,0 +1,156 @@
+/*
+ * Chat Service API v1
+ * 
+ * Purpose: Core messaging operations (send, receive, track status)
+ * Covers: User Stories 1-2 (P1 MVP - text messaging, status tracking)
+ */
+
+syntax = "proto3";
+
+package chat_api.v1;
+
+option java_package = "com.chat.grpc.v1";
+option java_outer_classname = "ChatServiceProto";
+option java_multiple_files = true;
+
+import "common_types.proto";
+import "google/protobuf/timestamp.proto";
+
+// ============================================================================
+// Service Definition
+// ============================================================================
+
+/**
+ * ChatService
+ * 
+ * Responsibility: Handles message submission, delivery, and status tracking.
+ * Does NOT: Manage conversations (see ConversationService), handle file uploads (see FileService - P2).
+ * 
+ * Distributed Systems Concept: Demonstrates async messaging (submit → RabbitMQ → worker → MongoDB),
+ * idempotency (client-generated message_id), and eventual consistency (state transitions).
+ */
+service ChatService {
+  // Send text message to conversation (FR-001)
+  rpc SendMessage(SendMessageRequest) returns (SendMessageResponse);
+  
+  // Stream real-time messages for user (FR-005: gRPC bidirectional streaming)
+  // Client sends SubscribeRequest, server streams incoming messages
+  rpc StreamMessages(SubscribeRequest) returns (stream MessageEvent);
+  
+  // Get message status history (FR-004: track state lifecycle)
+  rpc GetMessageStatus(GetMessageStatusRequest) returns (GetMessageStatusResponse);
+  
+  // Mark message as read (FR-004: READ state transition)
+  rpc MarkMessageAsRead(MarkMessageAsReadRequest) returns (MarkMessageAsReadResponse);
+}
+
+// ============================================================================
+// Request/Response Messages
+// ============================================================================
+
+/**
+ * SendMessageRequest
+ * Submit text message to conversation (FR-001)
+ */
+message SendMessageRequest {
+  string message_id = 1;         // UUID (client-generated for idempotency per FR-003)
+  string conversation_id = 2;    // Target conversation UUID
+  string sender_id = 3;          // Sending user UUID (extracted from auth token in production)
+  string message_text = 4;       // Text content (max 100 KB per edge case)
+  
+  // Optional: Message metadata
+  map<string, string> metadata = 5;  // Future: reply_to_message_id, mentions, etc.
+}
+
+/**
+ * SendMessageResponse
+ * Confirmation of message submission (202 Accepted semantics)
+ */
+message SendMessageResponse {
+  string message_id = 1;                    // Echo of submitted message_id
+  MessageStatus status = 2;                 // Always SENT (accepted by server)
+  google.protobuf.Timestamp timestamp = 3;  // Server timestamp
+  int64 sequence_number = 4;                // Per-conversation ordering number
+}
+
+/**
+ * SubscribeRequest
+ * Client subscribes to real-time message stream (FR-005)
+ */
+message SubscribeRequest {
+  string user_id = 1;                // User UUID to receive messages for
+  repeated string conversation_ids = 2;  // Optional: filter by specific conversations (empty = all)
+}
+
+/**
+ * MessageEvent
+ * Streamed event for new message or status update (FR-005, FR-004)
+ */
+message MessageEvent {
+  oneof event {
+    NewMessageEvent new_message = 1;       // New message received
+    StatusUpdateEvent status_update = 2;   // Message status changed (SENT → DELIVERED → READ)
+  }
+}
+
+/**
+ * NewMessageEvent
+ * Notifies recipient of new message
+ */
+message NewMessageEvent {
+  string message_id = 1;
+  string conversation_id = 2;
+  UserInfo sender = 3;                      // Sender information (user_id + username)
+  string message_text = 4;
+  google.protobuf.Timestamp timestamp = 5;
+  int64 sequence_number = 6;
+}
+
+/**
+ * StatusUpdateEvent
+ * Notifies sender of message status change (DELIVERED or READ)
+ */
+message StatusUpdateEvent {
+  string message_id = 1;
+  MessageStatus old_status = 2;             // Previous state
+  MessageStatus new_status = 3;             // Current state
+  google.protobuf.Timestamp timestamp = 4;  // When transition occurred
+  string recipient_id = 5;                  // Who triggered transition (for group messages)
+}
+
+/**
+ * GetMessageStatusRequest
+ * Query message state history (FR-004)
+ */
+message GetMessageStatusRequest {
+  string message_id = 1;  // UUID of message to query
+}
+
+/**
+ * GetMessageStatusResponse
+ * Returns complete state transition history
+ */
+message GetMessageStatusResponse {
+  string message_id = 1;
+  repeated MessageStateTransition state_history = 2;  // Chronological state transitions
+  MessageStatus current_status = 3;                    // Derived from last entry in state_history
+}
+
+/**
+ * MarkMessageAsReadRequest
+ * User marks message as read (FR-004: READ state transition)
+ */
+message MarkMessageAsReadRequest {
+  string message_id = 1;
+  string user_id = 2;      // User marking message as read (from auth token)
+}
+
+/**
+ * MarkMessageAsReadResponse
+ * Confirmation of READ state transition
+ */
+message MarkMessageAsReadResponse {
+  string message_id = 1;
+  MessageStatus status = 2;                 // Always READ
+  google.protobuf.Timestamp timestamp = 3;  // When marked as read
+}
