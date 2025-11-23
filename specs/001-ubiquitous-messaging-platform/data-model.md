@@ -494,7 +494,7 @@ public class MongoConfig {
 
 **Rationale**:
 - **Durability**: Data written to majority of replica set nodes (survives primary failure)
-- **At-least-once delivery**: Combined with RabbitMQ manual acknowledgments (FR-021)
+- **At-least-once delivery**: Combined with Kafka manual offset commits (FR-026)
 - **Trade-off**: Slightly higher latency (~10-20ms) vs. eventual consistency, acceptable for <100ms p95 target
 
 **Read Preference**: `ReadPreference.PRIMARY_PREFERRED`

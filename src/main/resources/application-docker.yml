@@ -1,0 +1,31 @@
+spring:
+  # MongoDB Configuration (Docker)
+  data:
+    mongodb:
+      uri: ${MONGODB_URI}
+      database: chat
+  
+  # Kafka Configuration (Docker)
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS}
+    consumer:
+      group-id: message-consumer-group
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+        max.poll.records: 10
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all
+    listener:
+      ack-mode: manual
+
+logging:
+  level:
+    com.chat: INFO
+    org.apache.kafka: WARN
+    org.springframework.data.mongodb: INFO

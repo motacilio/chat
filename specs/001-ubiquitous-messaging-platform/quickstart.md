@@ -37,20 +37,22 @@ git checkout 001-ubiquitous-messaging-platform
 
 ### Step 2: Start Infrastructure (Docker Compose)
 
-**POC Services** (4 containers):
-- RabbitMQ (message broker)
+**POC Services** (6 containers):
+- Apache Kafka (message broker)
+- Zookeeper (Kafka coordination service)
 - MongoDB (persistence)
 - MongoDB Replica Set Initializer (one-time setup)
 - Chat API (Spring Boot gRPC server)
+- Kafka UI (optional management interface)
 
 ```bash
 # Start all services in background
 docker-compose up -d
 
-# Wait for RabbitMQ + MongoDB to initialize (~30 seconds)
-docker-compose logs -f mongodb
+# Wait for Kafka + MongoDB to initialize (~30 seconds)
+docker-compose logs -f kafka
 
-# When you see "waiting for connections on port 27017", services are ready
+# When you see "[KafkaServer id=1] started", services are ready
 # Press Ctrl+C to exit logs
 ```
 
@@ -61,13 +63,14 @@ docker-compose ps
 # Expected output:
 # NAME                  STATUS
 # chat-api              Up
-# rabbitmq              Up (healthy)
+# kafka                 Up (healthy)
+# zookeeper             Up
 # mongodb               Up
 # mongodb-init          Exited (0)
 ```
 
 **Access UIs**:
-- RabbitMQ Management: http://localhost:15672 (guest/guest)
+- Kafka UI: http://localhost:8080 (Kafka topics, consumer groups)
 - MongoDB: localhost:27017 (use MongoDB Compass)
 
 ### Step 3: Build Java Application
@@ -128,14 +131,15 @@ tar -xvf grpcurl_1.8.9_linux_x86_64.tar.gz
 sudo mv grpcurl /usr/local/bin/
 ```
 
-**Test ChatService.SendMessage**:
+**Test ChatService.SendMessage** (with auto-conversation creation):
 ```bash
-# Send text message
+# Send first message - conversation will be auto-created
 grpcurl -plaintext \
   -d '{
     "message_id": "550e8400-e29b-41d4-a716-446655440001",
     "conversation_id": "550e8400-e29b-41d4-a716-446655440000",
-    "sender_id": "user123",
+    "sender_id": "user-alice-uuid",
+    "recipient_id": "user-bob-uuid",
     "message_text": "Hello from gRPC!"
   }' \
   localhost:9090 \
@@ -145,9 +149,11 @@ grpcurl -plaintext \
 # {
 #   "messageId": "550e8400-e29b-41d4-a716-446655440001",
 #   "status": "SENT",
-#   "timestamp": "2025-11-18T10:30:00Z",
+#   "timestamp": "2025-11-22T10:30:00Z",
 #   "sequenceNumber": "1"
 # }
+
+# Note: If conversation doesn't exist, it will be auto-created with both sender_id and recipient_id as participants (per FR-004a)
 ```
 
 **List available services** (gRPC Server Reflection):
@@ -213,21 +219,49 @@ services:
         '
       "
 
-  # RabbitMQ (Message Broker)
-  rabbitmq:
-    image: rabbitmq:3.12-management
-    container_name: rabbitmq
-    ports:
-      - "5672:5672"    # AMQP
-      - "15672:15672"  # Management UI
+  # Apache Kafka (Message Broker)
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: zookeeper
     environment:
-      RABBITMQ_DEFAULT_USER: guest
-      RABBITMQ_DEFAULT_PASS: guest
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # Kafka UI (Optional - Management Interface)
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    depends_on:
+      - kafka
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
 
   # Chat API (Spring Boot gRPC Server)
   chat-api:
@@ -237,16 +271,13 @@ services:
     container_name: chat-api
     ports:
       - "9090:9090"  # gRPC
-      - "8080:8080"  # Spring Boot Actuator (health checks)
+      - "8081:8081"  # Spring Boot Actuator (health checks)
     environment:
       SPRING_PROFILES_ACTIVE: dev
       MONGODB_URI: mongodb://admin:password@mongodb:27017/chat?authSource=admin&replicaSet=rs0
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_PORT: 5672
-      RABBITMQ_USERNAME: guest
-      RABBITMQ_PASSWORD: guest
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
     depends_on:
-      rabbitmq:
+      kafka:
         condition: service_healthy
       mongodb:
         condition: service_healthy
@@ -273,18 +304,24 @@ spring:
       uri: ${MONGODB_URI}
       database: chat
   
-  # RabbitMQ Configuration
-  rabbitmq:
-    host: ${RABBITMQ_HOST}
-    port: ${RABBITMQ_PORT}
-    username: ${RABBITMQ_USERNAME}
-    password: ${RABBITMQ_PASSWORD}
+  # Kafka Configuration
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS}
+    consumer:
+      group-id: message-consumer-group
+      auto-offset-reset: earliest
+      enable-auto-commit: false  # Manual offset commits for at-least-once delivery
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+        max.poll.records: 10  # Prefetch limit (backpressure)
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all  # Wait for all replicas to acknowledge
     listener:
-      simple:
-        concurrency: 5          # Number of concurrent workers
-        max-concurrency: 10
-        prefetch: 10            # Messages per worker (backpressure)
-        acknowledge-mode: manual  # Manual acknowledgment for at-least-once delivery
+      ack-mode: manual  # Manual acknowledgment mode
 
 # gRPC Server Configuration
 grpc:
@@ -296,7 +333,7 @@ grpc:
 logging:
   level:
     com.chat: DEBUG
-    org.springframework.amqp: INFO
+    org.apache.kafka: INFO
     io.grpc: INFO
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} - %logger{36} - %msg%n"

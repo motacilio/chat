@@ -1,0 +1,222 @@
+/*
+ * Conversation Service API v1
+ * 
+ * Purpose: Conversation management (create, list, query history)
+ * Covers: User Story 3 (P1 MVP - private conversations), User Story 5 (P3 - group conversations)
+ */
+
+syntax = "proto3";
+
+package chat_api.v1;
+
+option java_package = "com.chat.grpc.v1";
+option java_outer_classname = "ConversationServiceProto";
+option java_multiple_files = true;
+
+import "common_types.proto";
+import "google/protobuf/timestamp.proto";
+
+// ============================================================================
+// Service Definition
+// ============================================================================
+
+/**
+ * ConversationService
+ * 
+ * Responsibility: Manages conversation lifecycle (create, list, fetch history).
+ * Does NOT: Send messages (see ChatService), handle authorization (assumed external per spec A-002).
+ * 
+ * Distributed Systems Concept: Demonstrates aggregate pattern (Conversation as boundary),
+ * pagination (efficient large dataset queries), and authorization checks (participant-only access).
+ */
+service ConversationService {
+  // Create new conversation (FR-009: private 1:1, FR-012: group)
+  rpc CreateConversation(CreateConversationRequest) returns (CreateConversationResponse);
+  
+  // List user's conversations (FR-011: with most recent message preview)
+  rpc ListConversations(ListConversationsRequest) returns (ListConversationsResponse);
+  
+  // Get conversation details (participants, metadata)
+  rpc GetConversation(GetConversationRequest) returns (GetConversationResponse);
+  
+  // Fetch conversation message history (FR-008: with pagination)
+  rpc GetConversationHistory(GetConversationHistoryRequest) returns (GetConversationHistoryResponse);
+  
+  // Add member to group conversation (FR-013: P3 - deferred)
+  rpc AddMember(AddMemberRequest) returns (AddMemberResponse);
+  
+  // Remove member from group conversation (FR-013: P3 - deferred)
+  rpc RemoveMember(RemoveMemberRequest) returns (RemoveMemberResponse);
+}
+
+// ============================================================================
+// Request/Response Messages
+// ============================================================================
+
+/**
+ * CreateConversationRequest
+ * Create new conversation (FR-009: private, FR-012: group)
+ */
+message CreateConversationRequest {
+  ConversationType type = 1;         // PRIVATE or GROUP
+  repeated string participant_ids = 2;  // List of user_id values (2 for PRIVATE, n for GROUP)
+  
+  // Optional: Conversation metadata
+  string name = 3;                   // Group name (required for GROUP, ignored for PRIVATE)
+  map<string, string> metadata = 4;  // Future: description, avatar_url, etc.
+}
+
+/**
+ * CreateConversationResponse
+ * Returns newly created conversation
+ */
+message CreateConversationResponse {
+  string conversation_id = 1;               // UUID
+  ConversationType type = 2;
+  repeated string participant_ids = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+/**
+ * ListConversationsRequest
+ * Fetch user's conversation list (FR-011)
+ */
+message ListConversationsRequest {
+  string user_id = 1;           // User UUID (from auth token)
+  
+  // Pagination
+  int32 limit = 2;              // Items per page (default 20, max 100)
+  int32 offset = 3;             // Starting position (0-indexed)
+  
+  // Optional filters
+  ConversationType type_filter = 4;  // Filter by PRIVATE or GROUP (0 = all)
+}
+
+/**
+ * ListConversationsResponse
+ * Returns paginated list of conversations
+ */
+message ListConversationsResponse {
+  repeated ConversationSummary conversations = 1;
+  PaginationInfo pagination = 2;
+}
+
+/**
+ * ConversationSummary
+ * Lightweight conversation info for list view
+ */
+message ConversationSummary {
+  string conversation_id = 1;
+  ConversationType type = 2;
+  repeated UserInfo participants = 3;           // User info (user_id + username)
+  string name = 4;                              // Group name (empty for PRIVATE)
+  google.protobuf.Timestamp last_message_at = 5;  // Sort key
+  string last_message_preview = 6;              // Preview text (e.g., "Hello world...")
+  int32 unread_count = 7;                       // Number of unread messages (future feature)
+}
+
+/**
+ * GetConversationRequest
+ * Fetch conversation details
+ */
+message GetConversationRequest {
+  string conversation_id = 1;  // UUID
+}
+
+/**
+ * GetConversationResponse
+ * Returns full conversation details
+ */
+message GetConversationResponse {
+  string conversation_id = 1;
+  ConversationType type = 2;
+  repeated UserInfo participants = 3;
+  string name = 4;                              // Group name (empty for PRIVATE)
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp last_message_at = 6;
+}
+
+/**
+ * GetConversationHistoryRequest
+ * Fetch message history with pagination (FR-008)
+ */
+message GetConversationHistoryRequest {
+  string conversation_id = 1;
+  
+  // Pagination
+  int32 limit = 2;              // Messages per page (default 50, max 100)
+  int32 offset = 3;             // Starting position (0-indexed, sorted by timestamp DESC)
+  
+  // Optional: Timestamp filter
+  google.protobuf.Timestamp since = 4;   // Return messages after this timestamp
+  google.protobuf.Timestamp until = 5;   // Return messages before this timestamp
+}
+
+/**
+ * GetConversationHistoryResponse
+ * Returns paginated message list
+ */
+message GetConversationHistoryResponse {
+  string conversation_id = 1;
+  repeated Message messages = 2;        // Chronological order (oldest first)
+  PaginationInfo pagination = 3;
+}
+
+/**
+ * Message
+ * Complete message representation (used in history queries)
+ */
+message Message {
+  string message_id = 1;
+  string conversation_id = 2;
+  UserInfo sender = 3;                          // Sender info (user_id + username)
+  
+  // Message content (oneof: text OR file)
+  oneof content {
+    string message_text = 4;                    // Text message
+    FileMetadata file_metadata = 5;             // File message (P2 - deferred)
+  }
+  
+  google.protobuf.Timestamp timestamp = 6;
+  int64 sequence_number = 7;                    // Per-conversation ordering
+  repeated MessageStateTransition state_history = 8;  // State lifecycle
+  MessageStatus current_status = 9;             // Derived from last entry in state_history
+}
+
+/**
+ * AddMemberRequest (P3 - Group Conversations - Deferred)
+ * Add user to group conversation (FR-013)
+ */
+message AddMemberRequest {
+  string conversation_id = 1;
+  string user_id = 2;           // User to add
+  string added_by = 3;          // Admin user adding member (from auth token)
+}
+
+/**
+ * AddMemberResponse
+ * Confirmation of member addition
+ */
+message AddMemberResponse {
+  string conversation_id = 1;
+  repeated string participant_ids = 2;  // Updated participant list
+}
+
+/**
+ * RemoveMemberRequest (P3 - Group Conversations - Deferred)
+ * Remove user from group conversation (FR-013)
+ */
+message RemoveMemberRequest {
+  string conversation_id = 1;
+  string user_id = 2;           // User to remove
+  string removed_by = 3;        // Admin user removing member (from auth token)
+}
+
+/**
+ * RemoveMemberResponse
+ * Confirmation of member removal
+ */
+message RemoveMemberResponse {
+  string conversation_id = 1;
+  repeated string participant_ids = 2;  // Updated participant list
+}

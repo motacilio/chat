@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+    
+    <!-- Console appender with JSON format (NFR-017: structured logging) -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <includeContext>true</includeContext>
+            <includeCallerData>false</includeCallerData>
+            <customFields>{"service":"chat-api"}</customFields>
+        </encoder>
+    </appender>
+
+    <!-- Console appender for development (human-readable) -->
+    <appender name="CONSOLE_DEV" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Profile-specific configuration -->
+    <springProfile name="dev">
+        <root level="INFO">
+            <appender-ref ref="CONSOLE_DEV"/>
+        </root>
+        <logger name="com.chat" level="DEBUG"/>
+    </springProfile>
+
+    <springProfile name="docker,prod">
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+        <logger name="com.chat" level="INFO"/>
+    </springProfile>
+</configuration>

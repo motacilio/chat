@@ -5,6 +5,22 @@
 **Status**: Draft  
 **Input**: User description: "desenvolver uma plataforma de comunicação ubíqua (API) capaz de rotear mensagens e arquivos entre usuários em múltiplas plataformas (ex.: WhatsApp, Instagram Direct, Messenger, Telegram) e entre clientes internos (web/mobile/CLI). Suporta comunicação privada e em grupo, persistência no servidor, controle de envio/recebimento/leitura, entrega de arquivos até 2 GB e operação em escala (milhões de usuários)."
 
+## Clarifications
+
+### Session 2025-11-22
+
+- Q: The spec assumes users are "pre-authenticated" but doesn't specify the authentication mechanism. Which approach should the system use? → A: OAuth 2.0 with JWT tokens
+- Q: For user identity, the spec mentions `user_id`, `username`, and `email` but doesn't clarify the primary identifier. What should be the canonical user identifier throughout the system? → A: UUID-based user_id
+- Q: The spec requires observability (structured logging, metrics, tracing, dashboards) but doesn't specify tools. Which observability stack should be used? → A: Prometheus + Grafana + Jaeger
+- Q: For group conversations, the spec doesn't specify permission models. Should groups have admin roles with special privileges (add/remove members, change settings)? → A: Yes, with admin roles - creator is admin, can promote others, control membership
+- Q: The spec targets "millions of users" but doesn't specify the initial baseline. What should be the MVP performance target for concurrent active users? → A: 10,000 concurrent users
+- Q: Should the message broker be RabbitMQ or Kafka? → A: Apache Kafka (better for high-throughput event streaming, partition-based scaling, and log-based message persistence)
+- Q: The spec mentions "message_text OR file_metadata" but doesn't define how to handle messages with BOTH text and file. Should the system support combined text+file messages? → A: B
+- Q: Auto-creation of conversations when first message is sent - who should be included as participants besides sender_id? → A: recipient_id obrigatório
+- Q: Rate limiting defines 100 messages/minute but doesn't specify behavior during legitimate bursts (e.g., copy/paste 150 messages). Should system: reject immediately, queue with backpressure, or something else? → A: Queue up to 200 messages (2x limit) with backpressure, process respecting rate limit
+- Q: Group messages track state when different recipients reach different states at different times - how? → A: Per-recipient state in state_history array
+- Q: Database partitioning strategy for millions of users - partition by user_id, conversation_id, or timestamp? → A: B (conversation_id hash)
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Send and Receive Text Messages (Priority: P1) 🎯 **MVP Core**
@@ -120,86 +136,97 @@ Users MUST be able to send messages that are routed to external platforms (Whats
 - **What happens when a message exceeds maximum text size?** System MUST reject messages >100 KB with error "Message exceeds maximum size" (prevents abuse and ensures performance).
 - **What happens when conversation_id does not exist?** System MUST return "Conversation not found" error and reject message submission.
 - **What happens when recipient user_id is invalid?** System MUST return "Recipient not found" error during conversation creation.
-- **What happens when a user tries to send messages faster than rate limit?** System MUST enforce rate limit (e.g., 100 messages/minute per user) and return "Rate limit exceeded" error with retry-after timestamp.
+- **What happens when a user tries to send messages faster than rate limit?** System MUST queue messages up to 200 (2x the 100 messages/minute limit) with backpressure, processing them at the rate limit pace. Requests exceeding 200 queued messages return "Rate limit queue full" error with retry-after timestamp.
 - **What happens when Object Storage (MinIO) is unavailable during file upload?** System MUST return "Storage unavailable" error and allow user to retry upload later.
 - **What happens when a message is in SENT state for >24 hours (recipient never comes online)?** Message remains persisted with SENT state indefinitely until recipient connects (no automatic expiration in MVP).
 - **What happens when network partitions occur between MongoDB replicas?** System uses MongoDB write concern "majority" to ensure at-least-once delivery guarantee even during partitions (eventual consistency model).
 - **What happens when duplicate message_id is submitted within 1 second (race condition)?** MongoDB unique index on message_id enforces deduplication at database level, rejecting duplicates immediately.
-- **What happens when a group conversation has 500 members and a message is sent?** System uses RabbitMQ fan-out exchange to deliver message to all members asynchronously, tracking delivery state per recipient.
+- **What happens when a group conversation has 500 members and a message is sent?** System uses Kafka topic partitioning to deliver message to all members asynchronously via consumer groups, tracking delivery state per recipient.
 - **What happens when a user requests conversation history for a conversation with 1 million messages?** System enforces pagination (max 100 messages per request) and uses database indexes on (conversation_id, timestamp) for efficient queries.
 
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
 
+#### Authentication & Authorization (P1 - MVP)
+
+- **FR-001**: System MUST implement OAuth 2.0 authentication with JWT token-based authorization for all API endpoints
+- **FR-002**: System MUST validate JWT tokens on every request and extract user_id (UUID) from token claims
+- **FR-003**: System MUST issue access tokens with 1-hour expiration and support refresh tokens for client re-authentication
+
 #### Core Messaging (P1 - MVP)
 
-- **FR-001**: System MUST accept text messages via gRPC API with fields: sender_id, recipient_id, conversation_id, message_text, message_id (UUID)
-- **FR-002**: System MUST persist message metadata (message_id, conversation_id, sender_id, timestamp, state, message_text) in MongoDB
-- **FR-003**: System MUST guarantee message idempotency using unique message_id—duplicate submissions MUST be rejected
-- **FR-004**: System MUST support message states: SENT (accepted by server), DELIVERED (reached recipient device), READ (opened by recipient)
-- **FR-005**: System MUST deliver messages in real-time to online users via gRPC bidirectional streaming within 2 seconds
-- **FR-006**: System MUST store messages for offline users and deliver when they reconnect (store-and-forward pattern)
-- **FR-007**: System MUST preserve message ordering within a conversation using per-conversation sequence numbers
-- **FR-008**: System MUST provide conversation history API with pagination (default 50 messages, max 100 per request)
+- **FR-004**: System MUST accept text messages via gRPC API with fields: sender_id, recipient_id (required for auto-created conversations), conversation_id, message_text, message_id (UUID)
+- **FR-004a**: When conversation_id does not exist, system MUST auto-create PRIVATE conversation with both sender_id and recipient_id as initial participants
+- **FR-005**: System MUST persist message metadata (message_id, conversation_id, sender_id, timestamp, state, message_text) in MongoDB
+- **FR-006**: System MUST guarantee message idempotency using unique message_id—duplicate submissions MUST be rejected
+- **FR-007**: System MUST support message states: SENT (accepted by server), DELIVERED (reached recipient device), READ (opened by recipient)
+- **FR-008**: System MUST deliver messages in real-time to online users via gRPC bidirectional streaming within 2 seconds
+- **FR-009**: System MUST store messages for offline users and deliver when they reconnect (store-and-forward pattern)
+- **FR-010**: System MUST preserve message ordering within a conversation using per-conversation sequence numbers
+- **FR-011**: System MUST provide conversation history API with pagination (default 50 messages, max 100 per request)
 
 #### Conversation Management (P1 - MVP)
 
-- **FR-009**: System MUST allow users to create 1:1 private conversations with unique conversation_id
-- **FR-010**: System MUST restrict conversation access to participants only (authorization check on all read/write operations)
-- **FR-011**: System MUST provide API to list user's conversations with most recent message preview and timestamp
-- **FR-012**: System MUST allow users to create group conversations with multiple participants (n members)
-- **FR-013**: System MUST support adding/removing members from group conversations with permission checks
-- **FR-014**: Group messages MUST be fan-out delivered to all participants with per-recipient delivery tracking
+- **FR-012**: System MUST allow users to create 1:1 private conversations with unique conversation_id
+- **FR-013**: System MUST restrict conversation access to participants only (authorization check on all read/write operations)
+- **FR-014**: System MUST enforce rate limiting (100 messages/minute per user) to prevent abuse
+- **FR-014a**: System MUST queue up to 200 messages per user when burst traffic exceeds rate limit, processing them at 100 messages/minute pace. Requests exceeding 200 queued messages return error with backpressure signal.
+- **FR-015**: System MUST provide API to list user's conversations with most recent message preview and timestamp
+- **FR-015**: System MUST allow users to create group conversations with multiple participants (n members)
+- **FR-016**: System MUST assign creator of group conversation as initial admin with permissions to add/remove members and promote other admins
+- **FR-017**: System MUST enforce that only admins can add/remove members from group conversations
+- **FR-018**: System MUST enforce that only admins can promote other members to admin role or revoke admin privileges
+- **FR-019**: Group messages MUST be fan-out delivered to all participants with per-recipient delivery tracking
 
 #### File Handling (P2)
 
-- **FR-015**: System MUST accept file uploads up to 2 GB using chunked upload protocol
-- **FR-016**: System MUST implement resumable upload—clients can resume from last successful chunk after network interruption
-- **FR-017**: System MUST store files in Object Storage (MinIO) and persist metadata (filename, size, storage_url, conversation_id) in MongoDB
-- **FR-018**: System MUST generate pre-signed download URLs valid for 1 hour for authorized users
-- **FR-019**: System MUST reject files exceeding 2 GB with clear error message
-- **FR-020**: File messages MUST follow same state lifecycle as text messages (SENT → DELIVERED → READ)
+- **FR-020**: System MUST accept file uploads up to 2 GB using chunked upload protocol
+- **FR-021**: System MUST implement resumable upload—clients can resume from last successful chunk after network interruption
+- **FR-022**: System MUST store files in Object Storage (MinIO) and persist metadata (filename, size, storage_url, conversation_id) in MongoDB
+- **FR-023**: System MUST generate pre-signed download URLs valid for 1 hour for authorized users
+- **FR-024**: System MUST reject files exceeding 2 GB with clear error message
+- **FR-025**: File messages MUST follow same state lifecycle as text messages (SENT → DELIVERED → READ)
 
 #### Delivery Guarantees (P1 - MVP)
 
-- **FR-021**: System MUST provide at-least-once delivery guarantee using RabbitMQ message acknowledgments
-- **FR-022**: System MUST support idempotency to enable effectively-once semantics via message_id deduplication
-- **FR-023**: System MUST maintain causal ordering within conversations using conversation_id + sequence_number
-- **FR-024**: System MUST use MongoDB write concern "majority" for message persistence to ensure durability
+- **FR-026**: System MUST provide at-least-once delivery guarantee using Kafka consumer acknowledgments and offset commits
+- **FR-027**: System MUST support idempotency to enable effectively-once semantics via message_id deduplication
+- **FR-028**: System MUST maintain causal ordering within conversations using conversation_id as Kafka partition key + sequence_number
+- **FR-029**: System MUST use MongoDB write concern "majority" for message persistence to ensure durability
 
 #### Webhooks & Events (P2)
 
-- **FR-025**: System MUST expose webhook API for clients to register callback URLs for events (message_delivered, message_read)
-- **FR-026**: System MUST publish events to registered webhooks with retry logic (3 attempts with exponential backoff)
-- **FR-027**: System MUST provide gRPC streaming API for real-time event subscription (alternative to webhooks)
+- **FR-030**: System MUST expose webhook API for clients to register callback URLs for events (message_delivered, message_read)
+- **FR-031**: System MUST publish events to registered webhooks with retry logic (3 attempts with exponential backoff)
+- **FR-032**: System MUST provide gRPC streaming API for real-time event subscription (alternative to webhooks)
 
 #### Multi-Platform Routing (P4 - Post-MVP)
 
-- **FR-028**: System MUST support plugin architecture for external platform adapters (WhatsApp, Instagram, Telegram)
-- **FR-029**: Adapters MUST implement standard interface: connect(), sendMessage(), sendFile(), webhookHandler()
-- **FR-030**: System MUST allow users to link external accounts (user_id mapped to whatsapp_number, instagram_username, etc.)
-- **FR-031**: System MUST route messages to selected platforms when user specifies channels: ["whatsapp", "instagram"] or "all"
-- **FR-032**: System MUST capture incoming messages from external platforms via webhooks and route to internal recipients
-- **FR-033**: Adapter failures MUST NOT block internal message delivery—external routing is best-effort with retry
+- **FR-033**: System MUST support plugin architecture for external platform adapters (WhatsApp, Instagram, Telegram)
+- **FR-034**: Adapters MUST implement standard interface: connect(), sendMessage(), sendFile(), webhookHandler()
+- **FR-035**: System MUST allow users to link external accounts (user_id mapped to whatsapp_number, instagram_username, etc.)
+- **FR-036**: System MUST route messages to selected platforms when user specifies channels: ["whatsapp", "instagram"] or "all"
+- **FR-037**: System MUST capture incoming messages from external platforms via webhooks and route to internal recipients
+- **FR-038**: Adapter failures MUST NOT block internal message delivery—external routing is best-effort with retry
 
 ### Non-Functional Requirements
 
 #### Scalability (P1 - MVP)
 
-- **NFR-001**: System MUST support millions of active users with horizontal scaling
+- **NFR-001**: System MUST support minimum 10,000 concurrent active users in MVP with horizontal scaling capability to millions
 - **NFR-002**: System MUST handle 1,000 concurrent gRPC connections per service instance
 - **NFR-003**: System MUST achieve <100ms p95 latency for text message submission (measured at gRPC endpoint)
-- **NFR-004**: System MUST support thousands of messages per second per node with horizontal partitioning via RabbitMQ
+- **NFR-004**: System MUST support thousands of messages per second per node with horizontal partitioning via Kafka topic partitions
 - **NFR-005**: System MUST be stateless—all session state persisted in MongoDB or distributed cache
 - **NFR-006**: System MUST auto-scale horizontally without downtime (add new service instances dynamically)
 
 #### Availability & Reliability (P1 - MVP)
 
 - **NFR-007**: System MUST target 99.9% uptime (max 43 minutes downtime per month)
-- **NFR-008**: System MUST implement failover for critical components (RabbitMQ, MongoDB with replica sets)
+- **NFR-008**: System MUST implement failover for critical components (Kafka cluster with replication factor 3, MongoDB with replica sets)
 - **NFR-009**: System MUST detect node failures via heartbeats and replace failed instances automatically
-- **NFR-010**: System MUST use RabbitMQ persistent queues to prevent message loss during broker restarts
+- **NFR-010**: System MUST use Kafka topic replication and log persistence to prevent message loss during broker restarts
 - **NFR-011**: System MUST use MongoDB replica sets (minimum 3 nodes) for data durability
 
 #### Performance (P1 - MVP)
@@ -212,11 +239,11 @@ Users MUST be able to send messages that are routed to external platforms (Whats
 
 #### Observability (P2)
 
-- **NFR-017**: System MUST implement structured logging (JSON format) with centralized aggregation
-- **NFR-018**: System MUST expose metrics: messages/second, latency percentiles, error rates, RabbitMQ queue depth, MongoDB connection pool usage
-- **NFR-019**: System MUST implement distributed tracing for request flows across services
-- **NFR-020**: System MUST provide dashboards for real-time monitoring of key metrics
-- **NFR-021**: System MUST send alerts when SLOs are breached (latency >100ms p95, error rate >1%)
+- **NFR-017**: System MUST implement structured logging (JSON format) with centralized aggregation via Prometheus
+- **NFR-018**: System MUST expose metrics via Prometheus exporters: messages/second, latency percentiles, error rates, Kafka consumer lag, MongoDB connection pool usage
+- **NFR-019**: System MUST implement distributed tracing using Jaeger for request flows across services
+- **NFR-020**: System MUST provide Grafana dashboards for real-time monitoring of key metrics
+- **NFR-021**: System MUST send alerts via Grafana Alerting when SLOs are breached (latency >100ms p95, error rate >1%)
 
 #### API & Extensibility (P3)
 
@@ -227,10 +254,12 @@ Users MUST be able to send messages that are routed to external platforms (Whats
 
 ### Key Entities
 
-- **User**: Represents a platform user with unique user_id. Attributes: username, email, created_at, linked_accounts (for multi-platform mapping).
-- **Conversation**: Represents a messaging context (1:1 or group). Attributes: conversation_id (UUID), type (PRIVATE/GROUP), participants (list of user_id), created_at, last_message_at.
-- **Message**: Represents a single message in a conversation. Attributes: message_id (UUID, unique), conversation_id, sender_id, message_text OR file_metadata, timestamp, state (SENT/DELIVERED/READ), sequence_number (per conversation).
-- **MessageState**: Tracks state transitions for a message. Attributes: message_id, state, timestamp, recipient_id (for group messages, tracks per-recipient state).
+- **User**: Represents a platform user with unique user_id (UUID, primary identifier). Attributes: user_id (UUID), username (unique, human-readable), email (unique), created_at, linked_accounts (for multi-platform mapping). Authentication via OAuth 2.0 JWT tokens containing user_id claim.
+- **Conversation**: Represents a messaging context (1:1 or group). Attributes: conversation_id (UUID), type (PRIVATE/GROUP), participants (list of user_id), admin_user_ids (list of user_id with admin privileges, only for GROUP type), creator_id (user_id of conversation creator), created_at, last_message_at.
+- **Message**: Abstract base entity with common attributes: message_id (UUID, unique), conversation_id, sender_id, timestamp, state (SENT/DELIVERED/READ), sequence_number (per conversation), state_history (array of {recipient_id, state, timestamp} for per-recipient tracking in group messages). Two concrete subtypes:
+  - **TextMessage**: Contains message_text field (string, max 100 KB). Used for text-only messages.
+  - **FileMessage**: Contains file_metadata reference. Used for file-only messages (no text caption).
+- **MessageState**: Tracks state transitions for a message. Attributes: message_id, state, timestamp, recipient_id (for group messages, tracks per-recipient state in state_history array).
 - **FileMetadata**: Represents file attachments. Attributes: file_id (UUID), filename, size_bytes, mime_type, storage_url (MinIO reference), uploaded_at, conversation_id.
 - **Webhook**: Represents a registered callback endpoint. Attributes: webhook_id, user_id, callback_url, event_types (list: message_delivered, message_read), active (boolean).
 - **LinkedAccount**: Maps internal user to external platform accounts. Attributes: user_id, platform (WHATSAPP/INSTAGRAM/TELEGRAM), external_id (phone_number, username, etc.), linked_at.
@@ -240,12 +269,12 @@ Users MUST be able to send messages that are routed to external platforms (Whats
 ### Measurable Outcomes
 
 - **SC-001**: Users can send and receive text messages with <2 second delivery latency for online recipients (measured via instrumentation)
-- **SC-002**: System handles 1,000 concurrent users sending messages without degradation in latency (<100ms p95 maintained)
+- **SC-002**: System handles 10,000 concurrent users sending messages without degradation in latency (<100ms p95 maintained)
 - **SC-003**: Message delivery guarantee: 99.9% of messages transition from SENT to DELIVERED within 24 hours (for online or reconnecting users)
 - **SC-004**: File uploads up to 500 MB complete successfully with resumable protocol (measured via test suite with simulated network interruptions)
 - **SC-005**: Conversation history queries return within <200ms for 50-message pages with 10,000 messages in conversation (database performance test)
 - **SC-006**: System achieves 99.9% uptime over 30-day period (monitored via health checks and uptime tracking)
-- **SC-007**: Zero data loss during planned failover tests (MongoDB replica set leader election, RabbitMQ node restart)
+- **SC-007**: Zero data loss during planned failover tests (MongoDB replica set leader election, Kafka broker restart with topic replication)
 - **SC-008**: API documentation is auto-generated from Protobuf definitions and accessible via gRPC Server Reflection
 - **SC-009**: MVP delivers P1 user stories (text messaging, status tracking, 1:1 conversations) within 8 weeks with passing integration tests
 - **SC-010**: System scales horizontally—adding a 2nd service instance doubles throughput (measured via load testing)
@@ -782,15 +811,16 @@ X-Event-Type: message_delivered
 ## Assumptions
 
 - **A-001**: MVP focuses on internal clients (web/mobile/CLI) only; multi-platform routing (WhatsApp, Instagram, Telegram) is deferred to post-MVP phases.
-- **A-002**: Users are pre-authenticated; this specification does NOT cover user authentication/authorization implementation (assumes OAuth2/JWT tokens are provided by separate auth service).
-- **A-003**: MongoDB, RabbitMQ, and MinIO infrastructure is deployed and operational (Docker Compose for development, managed services for production).
+- **A-002**: System uses OAuth 2.0 with JWT tokens for authentication; user identity is based on UUID user_id extracted from JWT claims. This specification covers token validation but NOT the OAuth 2.0 authorization server implementation (assumes separate auth service issues tokens).
+- **A-003**: MongoDB, Kafka cluster (with Zookeeper/KRaft), and MinIO infrastructure is deployed and operational (Docker Compose for development, managed services for production).
 - **A-004**: File storage quota is NOT enforced in MVP—file size limit is 2 GB per file, but total storage per user is unlimited.
 - **A-005**: Message retention is indefinite—no automatic deletion of old messages (archival/retention policy is post-MVP).
 - **A-006**: Read receipts (READ state) are opt-in—users can disable read receipts in future iterations, but MVP always sends them.
 - **A-007**: Group conversation member limit is 100 participants in MVP (scalability testing for larger groups is post-MVP).
 - **A-008**: External platform adapters (WhatsApp, Instagram) require API keys/credentials—this spec assumes those are provisioned externally.
-- **A-009**: Network latency between services (gRPC API ↔ RabbitMQ ↔ MongoDB) is <10ms on average (collocated in same data center for MVP).
+- **A-009**: Network latency between services (gRPC API ↔ Kafka ↔ MongoDB) is <10ms on average (collocated in same data center for MVP).
 - **A-010**: Rate limiting is enforced at 100 messages/minute per user to prevent abuse (configurable via environment variables).
+- **A-011**: MongoDB collections (messages, conversations) are partitioned using conversation_id hash-based sharding. This ensures conversation locality (all messages for a conversation reside on same shard), simplifies queries, and enables efficient sequence number generation.
 
 ## Out of Scope (Post-MVP)
 

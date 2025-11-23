@@ -56,10 +56,11 @@ message SendMessageRequest {
   string message_id = 1;         // UUID (client-generated for idempotency per FR-003)
   string conversation_id = 2;    // Target conversation UUID
   string sender_id = 3;          // Sending user UUID (extracted from auth token in production)
-  string message_text = 4;       // Text content (max 100 KB per edge case)
+  string recipient_id = 4;       // Recipient user UUID (required for auto-created conversations per FR-004a)
+  string message_text = 5;       // Text content (max 100 KB per edge case)
   
   // Optional: Message metadata
-  map<string, string> metadata = 5;  // Future: reply_to_message_id, mentions, etc.
+  map<string, string> metadata = 6;  // Future: reply_to_message_id, mentions, etc.
 }
 
 /**

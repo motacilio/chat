@@ -1,0 +1,38 @@
+spring:
+  # MongoDB Configuration
+  data:
+    mongodb:
+      uri: mongodb://localhost:27017/chat
+      database: chat
+  
+  # Kafka Configuration
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: message-consumer-group
+      auto-offset-reset: earliest
+      enable-auto-commit: false  # Manual offset commits for at-least-once delivery
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+        max.poll.records: 10  # Prefetch limit (backpressure)
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all  # Wait for all replicas to acknowledge
+    listener:
+      ack-mode: manual  # Manual acknowledgment mode
+
+# Security (development - disable OAuth2 for local testing)
+spring.security:
+  oauth2:
+    resourceserver:
+      jwt:
+        issuer-uri: http://localhost:8080/realms/chat  # Placeholder for Keycloak
+
+logging:
+  level:
+    com.chat: DEBUG
+    org.apache.kafka: INFO
+    org.springframework.data.mongodb: DEBUG

@@ -1,0 +1,39 @@
+spring:
+  application:
+    name: chat-api
+  
+  profiles:
+    active: dev
+
+# Server configuration
+server:
+  port: 8081
+
+# gRPC Server
+grpc:
+  server:
+    port: 9090
+    enable-reflection: true
+
+# Management/Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+# Logging
+logging:
+  level:
+    com.chat: DEBUG
+    org.springframework: INFO
+    io.grpc: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %logger{36} - %msg%n"

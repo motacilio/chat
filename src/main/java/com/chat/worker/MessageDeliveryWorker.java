@@ -1,0 +1,177 @@
+package com.chat.worker;
+
+import com.chat.dto.MessageEventDto;
+import com.chat.grpc.v1.MessageEvent;
+import com.chat.grpc.v1.NewMessageEvent;
+import com.chat.grpc.v1.UserInfo;
+import com.chat.model.Message;
+import com.chat.model.MessageStatus;
+import com.chat.model.MessageStateTransition;
+import com.chat.repository.MessageRepository;
+import com.chat.service.ConversationService;
+import com.chat.service.StreamingService;
+import com.google.protobuf.Timestamp;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.kafka.support.Acknowledgment;
+import org.springframework.stereotype.Component;
+
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * MessageDeliveryWorker (T034)
+ * 
+ * Responsibility: Kafka consumer that persists messages to MongoDB.
+ * Consumes message-events topic, creates Message entities, updates Conversation.lastMessage preview.
+ * 
+ * Distributed Systems Concept: This is the write-side of the CQRS pattern.
+ * - ChatServiceImpl publishes events (command side)
+ * - MessageDeliveryWorker consumes events (query side update)
+ * - Multiple workers can consume from different partitions for horizontal scaling
+ * - Kafka partitions ensure ordering per conversation (key = conversation_id)
+ * 
+ * Idempotency Strategy: Check if Message with message_id already exists before inserting.
+ * This handles duplicate Kafka messages (at-least-once delivery semantics).
+ * 
+ * Error Handling: 
+ * - Business errors (validation failures): Log and commit offset (message is invalid, skip it)
+ * - Transient errors (DB connection): Don't commit offset, Kafka will retry
+ * - DLQ: After max retries, move to dead-letter queue for manual investigation
+ */
+@Component
+public class MessageDeliveryWorker {
+    
+    private static final Logger logger = LoggerFactory.getLogger(MessageDeliveryWorker.class);
+    
+    private final MessageRepository messageRepository;
+    private final ConversationService conversationService;
+    private final StreamingService streamingService;
+    
+    public MessageDeliveryWorker(
+            MessageRepository messageRepository,
+            ConversationService conversationService,
+            StreamingService streamingService) {
+        this.messageRepository = messageRepository;
+        this.conversationService = conversationService;
+        this.streamingService = streamingService;
+    }
+    
+    /**
+     * Kafka consumer for message-events topic (T034).
+     * 
+     * Concurrency: Multiple consumer instances read from different partitions (scaling).
+     * Ordering: Messages for same conversation_id go to same partition (Kafka key).
+     * Acknowledgment: Manual commit - only commit offset after successful MongoDB write.
+     * 
+     * Flow:
+     * 1. Check idempotency (message_id already exists?)
+     * 2. Create Message entity with initial state SENT
+     * 3. Persist to MongoDB
+     * 4. Update Conversation.lastMessage denormalized field
+     * 5. Commit Kafka offset
+     * 
+     * @param event  MessageEventDto from Kafka
+     * @param acknowledgment Manual offset commit control
+     */
+    @KafkaListener(
+            topics = "message-events",
+            groupId = "message-delivery-workers",
+            containerFactory = "kafkaListenerContainerFactory"
+    )
+    public void handleMessageEvent(MessageEventDto event, Acknowledgment acknowledgment) {
+        try {
+            String messageId = event.getMessageId();
+            String conversationId = event.getConversationId();
+            
+            // Idempotency check - if message already exists, skip processing
+            if (messageRepository.existsByMessageId(messageId)) {
+                logger.info("Message already exists (idempotency check) - message_id: {}, skipping", messageId);
+                acknowledgment.acknowledge();
+                return;
+            }
+            
+            // Create Message entity
+            Instant timestamp = Instant.parse(event.getTimestamp());
+            Message message = new Message();
+            message.setMessageId(messageId);
+            message.setConversationId(conversationId);
+            message.setSenderId(event.getSenderId());
+            message.setMessageText(event.getMessageText());
+            message.setSequenceNumber(event.getSequenceNumber());
+            message.setTimestamp(timestamp);
+            
+            // Initialize state history with SENT status
+            List<MessageStateTransition> stateHistory = new ArrayList<>();
+            stateHistory.add(MessageStateTransition.create(MessageStatus.SENT, null));
+            message.setStateHistory(stateHistory);
+            
+            // Persist to MongoDB
+            messageRepository.save(message);
+            
+            // T037: Log message persistence per NFR-017
+            logger.info("Message persisted to MongoDB - message_id: {}, conversation_id: {}, sequence: {}",
+                    messageId, conversationId, event.getSequenceNumber());
+            
+            // Update Conversation.lastMessage denormalized field (T046)
+            conversationService.updateLastMessage(conversationId, event.getMessageText(), timestamp);
+            
+            // T091: Notify StreamingService for real-time delivery to online users
+            // TODO: Get recipient_id from conversation or event (for now, we'll need to enhance MessageEventDto)
+            // For MVP, we'll broadcast to both participants if they're online
+            MessageEvent messageEvent = buildMessageEvent(message);
+            
+            // Check if any participants are online and push via stream
+            boolean deliveredViaStream = streamingService.notifyUserMessage(event.getSenderId(), messageEvent);
+            
+            if (deliveredViaStream) {
+                logger.debug("Message delivered to online user via stream - message_id: {}", messageId);
+            }
+            
+            // Commit Kafka offset after successful processing
+            acknowledgment.acknowledge();
+            
+        } catch (IllegalArgumentException e) {
+            // Business validation error - log and skip message (commit offset)
+            logger.error("Invalid message event - validation failed: {}", e.getMessage(), e);
+            acknowledgment.acknowledge();
+            
+        } catch (Exception e) {
+            // Transient error (DB connection, etc) - DO NOT commit offset
+            // Kafka will retry this message after backoff period
+            logger.error("Failed to process message event - will retry: {}", e.getMessage(), e);
+            // Don't acknowledge - Kafka will redeliver
+        }
+    }
+    
+    /**
+     * Build MessageEvent protobuf for streaming to online users.
+     * 
+     * @param message Persisted Message entity
+     * @return MessageEvent protobuf for gRPC streaming
+     */
+    private MessageEvent buildMessageEvent(Message message) {
+        // Build NewMessageEvent
+        NewMessageEvent newMessageEvent = NewMessageEvent.newBuilder()
+                .setMessageId(message.getMessageId())
+                .setConversationId(message.getConversationId())
+                .setSender(UserInfo.newBuilder()
+                        .setUserId(message.getSenderId())
+                        .setUsername("User-" + message.getSenderId().substring(0, 8))
+                        .build())
+                .setMessageText(message.getMessageText())
+                .setTimestamp(Timestamp.newBuilder()
+                        .setSeconds(message.getTimestamp().getEpochSecond())
+                        .setNanos(message.getTimestamp().getNano())
+                        .build())
+                .setSequenceNumber(message.getSequenceNumber())
+                .build();
+        
+        // Wrap in MessageEvent (oneof event)
+        return MessageEvent.newBuilder()
+                .setNewMessage(newMessageEvent)
+                .build();
+    }
+}

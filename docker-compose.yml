@@ -1,42 +1,121 @@
 version: '3.8'
 
 services:
-  # 1. Banco de Dados NoSQL
-  mongo-chat:
-    image: mongo:latest
-    container_name: mongo-chat
+  # MongoDB (Persistence with replica set)
+  mongodb:
+    image: mongo:7.0
+    container_name: mongodb
     ports:
-      - "27017:27017" # Porta padrão do MongoDB
-    volumes:
-      - mongo-data:/data/db # Persistência de dados
-
-  # 2. Message Broker (com UI de gerenciamento)
-  rabbitmq-chat:
-    image: rabbitmq:3-management
-    container_name: rabbitmq-chat
-    ports:
-      - "5672:5672"   # Porta do AMQP (para o Spring)
-      - "15672:15672" # Porta da Interface Web de Admin
-    volumes:
-      - rabbitmq-data:/var/lib/rabbitmq # Persistência de dados
-
-  # 3. Object Storage (S3 compatível, conforme PDF)
-  minio-chat:
-    image: minio/minio:latest
-    container_name: minio-chat
-    ports:
-      - "9000:9000"   # Porta da API S3
-      - "9001:9001"   # Porta da Interface Web
+      - "27017:27017"
     environment:
-      # Credenciais de admin (use algo seguro se for para produção)
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password
+    volumes:
+      - mongodb_data:/data/db
+    command: ["--replSet", "rs0"]
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MongoDB Replica Set Initializer (one-time)
+  mongodb-init:
+    image: mongo:7.0
+    container_name: mongodb-init
+    depends_on:
+      - mongodb
+    command: >
+      bash -c "
+        sleep 10 &&
+        mongosh --host mongodb:27017 -u admin -p password --authenticationDatabase admin --eval '
+          rs.initiate({
+            _id: \"rs0\",
+            members: [{ _id: 0, host: \"mongodb:27017\" }]
+          })
+        '
+      "
+    restart: "no"
+
+  # Zookeeper (Kafka coordination service)
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  # Apache Kafka (Message Broker - replaces RabbitMQ per research.md Decision 2)
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Kafka UI (Optional - Management Interface)
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    depends_on:
+      - kafka
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+
+  # MinIO Object Storage (S3-compatible, for P2 file uploads - deferred from MVP)
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
     volumes:
-      - minio-data:/data # Persistência de arquivos
+      - minio_data:/data
     command: server /data --console-address ":9001"
 
-# Volumes para persistir os dados
+  # Chat API (Spring Boot gRPC Server)
+  chat-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: chat-api
+    ports:
+      - "9090:9090"  # gRPC
+      - "8081:8081"  # Spring Boot Actuator (health checks)
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      MONGODB_URI: mongodb://admin:password@mongodb:27017/chat?authSource=admin&replicaSet=rs0
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    depends_on:
+      kafka:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
-  mongo-data:
-  rabbitmq-data:
-  minio-data:
+  mongodb_data:
+  minio_data:

@@ -1,0 +1,44 @@
+# Java/Maven
+target/
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+*.war
+*.ear
+*.class
+*.log
+
+# IDE
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+.settings/
+.project
+.classpath
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+*.tmp
+
+# Environment
+.env
+*.env
+.env.local
+
+# Node (if frontend added later)
+node_modules/
+dist/
+build/
+
+# Logs
+logs/
+*.log
+
+# Test coverage
+coverage/
+
+# Spring Boot
+spring-boot-*.log

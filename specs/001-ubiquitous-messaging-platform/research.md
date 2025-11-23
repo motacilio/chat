@@ -35,45 +35,46 @@ This document resolves all technical unknowns identified in the planning phase, 
 
 ---
 
-## Decision 2: RabbitMQ Message Patterns for Async Processing
+## Decision 2: Apache Kafka for Async Message Processing
 
-**Chosen**: **RabbitMQ with Topic Exchange + Worker Queues** (POC Phase), **defer Kafka** to post-POC
+**Chosen**: **Apache Kafka with Topic Partitions + Consumer Groups**
 
 **Rationale**:
-- **At-least-once delivery** via manual acknowledgments (worker confirms processing before RabbitMQ removes message from queue)
-- **Topic exchange** enables flexible routing (e.g., `message.sent`, `message.delivered`, `message.read` topics for different worker types)
-- **Worker queues** distribute load across multiple consumer instances (demonstrates horizontal scaling pattern)
-- **Persistent queues** prevent message loss during broker restarts (durable=true, delivery_mode=2)
-- **Lower complexity** than Kafka for MVP (no partition management, offset tracking, or Zookeeper dependency)
+- **At-least-once delivery** via manual offset commits (consumer commits offset only after successful MongoDB persistence)
+- **Partition-based ordering** using conversation_id as partition key ensures message ordering within conversations
+- **Consumer groups** distribute load across multiple consumer instances with automatic partition assignment
+- **Log-based persistence** prevents message loss during broker restarts and enables message replay
+- **High throughput** supports millions of messages/second with horizontal scaling via partitions
+- **Industry standard** for event streaming platforms (LinkedIn, Uber, Netflix use Kafka at scale)
 
-**RabbitMQ Topology** (POC):
+**Kafka Topology**:
 ```
-Producer (API) → Exchange (topic: "message.events")
-                    ↓ (routing key: "message.sent")
-                Queue: "message-processing-queue"
+Producer (API) → Topic: "message-events" (10 partitions, partition key = conversation_id)
+                    ↓
+                Consumer Group: "message-consumer-group" (multiple instances)
                     ↓
                 Workers (MessageDeliveryWorker) → MongoDB
 ```
 
-**When to Add Kafka** (Post-POC):
-- **Trigger**: When throughput exceeds 10,000 messages/second OR need event sourcing with replay capability
-- **Kafka advantages**: Partition-based horizontal scaling, log retention for replay, higher throughput (millions msg/sec)
-- **Migration path**: Keep RabbitMQ for request-response patterns, add Kafka for event streaming (complement, not replace)
+**Partition Strategy**:
+- **Partition Key**: conversation_id (guarantees all messages in a conversation go to same partition)
+- **Partition Count**: 10 partitions (allows up to 10 parallel consumers)
+- **Replication Factor**: 3 (ensures durability across broker failures)
 
 **Alternatives Considered**:
-1. **Apache Kafka**: Higher throughput, partition-based scaling, event log persistence. **DEFERRED** because adds complexity (partition assignment, offset management, Zookeeper/KRaft) unnecessary for MVP. RabbitMQ proves async patterns first.
-2. **AWS SQS**: Managed service, no broker maintenance. **REJECTED** because vendor lock-in and doesn't teach students about message broker internals (educational goal requires hands-on RabbitMQ/Kafka experience).
-3. **Redis Pub/Sub**: Simple, fast. **REJECTED** because no delivery guarantees (messages lost if no subscribers active) and lacks persistent queues.
+1. **RabbitMQ**: Simpler setup, good for traditional request-reply patterns. **REJECTED** because lower throughput (10K msg/sec vs Kafka's millions), weaker ordering guarantees across queues, and team already has Kafka experience.
+2. **AWS SQS**: Managed service, no broker maintenance. **REJECTED** because vendor lock-in and doesn't teach students about message broker internals (educational goal requires hands-on Kafka experience).
+3. **Redis Streams**: Lightweight, fast. **REJECTED** because not designed for multi-broker clustering or long-term durable storage (7-day retention vs Kafka's configurable persistence).
 
 **Implementation Notes**:
-- RabbitMQ connection pool: 10 connections per service instance (sized for 1000 concurrent users)
-- Prefetch count: 10 messages per worker (prevents overload, enables backpressure)
-- Dead Letter Exchange (DLX) for failed messages after 3 retry attempts
-- Spring AMQP `@RabbitListener` with manual acknowledgment mode
+- Kafka connection pool: 50 connections per service instance (sized for 10,000 concurrent users)
+- Consumer prefetch (max.poll.records): 10 messages per worker (prevents overload, enables backpressure)
+- Dead Letter Topic for failed messages after 3 retry attempts
+- Spring Kafka `@KafkaListener` with manual acknowledgment mode (`enable.auto.commit=false`)
 
 **Learning Resources**:
-- RabbitMQ Tutorial (Work Queues): https://www.rabbitmq.com/tutorials/tutorial-two-java.html
-- Spring AMQP Reference: https://docs.spring.io/spring-amqp/reference/
+- Kafka Quickstart: https://kafka.apache.org/quickstart
+- Spring Kafka Reference: https://docs.spring.io/spring-kafka/reference/html/
 
 ---
 
@@ -271,7 +272,7 @@ public interface PlatformAdapter {
 | Unknown | Decision | Deferred? | Rationale |
 |---------|----------|-----------|-----------|
 | API Protocol | gRPC + Protobuf | No | Lower latency, strong typing, streaming support |
-| Message Broker | RabbitMQ (POC) → Kafka (Post-POC) | Kafka: Yes | RabbitMQ proves patterns first, Kafka adds complexity |
+| Message Broker | Apache Kafka | No | High throughput, partition-based scaling, log persistence, industry standard |
 | Database | MongoDB (replica set) | No | Flexible schema, embedded documents, educational value |
 | File Uploads | tus Protocol | Yes (P2) | Industry standard, client libraries, resumable |
 | External Integration | Telegram Bot API (real) + Mocks | Yes (P4) | One real integration, mocks for others (cost/scope) |
