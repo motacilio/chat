@@ -9,16 +9,17 @@ import org.springframework.security.web.SecurityFilterChain;
 /**
  * Spring Security Configuration
  * 
- * Responsibility: Configures security for HTTP endpoints (Actuator, future REST APIs).
- * Does NOT: Secure gRPC endpoints (requires custom interceptor - see AuthenticationInterceptor when implemented).
+ * Responsibility: Configures security for HTTP endpoints (Actuator, REST APIs, JWT authentication).
+ * Does NOT: Secure gRPC endpoints (handled by AuthenticationInterceptor).
  * 
  * Distributed Systems Concept: JWT-based authentication enables stateless authorization across
  * distributed service instances. No session state stored in-memory - user_id extracted from JWT
- * token claims on every request (FR-002).
+ * token claims on every request.
  * 
- * MVP Note: Per spec A-002 ("Users are pre-authenticated"), authentication implementation is
- * DEFERRED to post-MVP. This configuration permits all requests for local development.
- * Production deployment requires OAuth2 JWT validation (commented below).
+ * POC Implementation: Permits authentication endpoint (/api/auth/login) and actuator endpoints.
+ * All other endpoints require authentication in production.
+ * 
+ * See: specs/001-ubiquitous-messaging-platform/authentication-jwt-research.md
  */
 @Configuration
 @EnableWebSecurity
@@ -27,12 +28,14 @@ public class SecurityConfig {
     /**
      * Configures HTTP security filter chain.
      * 
-     * MVP Configuration: Permits all requests (authentication deferred per spec A-002).
+     * POC Configuration:
+     * - Permits /api/auth/login (public login endpoint)
+     * - Permits /actuator/** (health checks, metrics)
+     * - Permits all other requests (for backward compatibility during POC)
      * 
-     * Production Configuration (uncomment when auth implemented):
-     * - Validate JWT tokens from Authorization header
-     * - Extract user_id from token claims
-     * - Reject requests with invalid/expired tokens
+     * Production Configuration:
+     * - Change .anyRequest().permitAll() to .anyRequest().authenticated()
+     * - Add JWT validation filter for protected endpoints
      * 
      * @param http HttpSecurity builder
      * @return SecurityFilterChain
@@ -41,38 +44,17 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-            // MVP: Disable CSRF for development (enable in production with proper token handling)
+            // Disable CSRF for stateless JWT authentication
             .csrf(csrf -> csrf.disable())
             
-            // MVP: Permit all requests (authentication deferred to post-MVP per spec A-002)
+            // Configure authorization rules
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/actuator/**").permitAll()  // Health checks, metrics
-                .anyRequest().permitAll()                      // All other requests
+                .requestMatchers("/api/auth/login").permitAll()     // Public: Login endpoint
+                .requestMatchers("/api/auth/health").permitAll()    // Public: Auth service health
+                .requestMatchers("/actuator/**").permitAll()        // Public: Actuator endpoints
+                .anyRequest().permitAll()                           // POC: Permit all (change to authenticated() in production)
             );
-        
-        /* PRODUCTION CONFIGURATION (uncomment when OAuth2 implemented):
-        http
-            .csrf(csrf -> csrf.disable())
-            .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/actuator/health", "/actuator/info").permitAll()  // Public endpoints
-                .anyRequest().authenticated()                                         // Require authentication
-            )
-            .oauth2ResourceServer(oauth2 -> oauth2
-                .jwt(jwt -> jwt
-                    .jwtAuthenticationConverter(jwtAuthenticationConverter())  // Extract user_id from claims
-                )
-            );
-        */
         
         return http.build();
     }
-    
-    /* PRODUCTION: JWT converter to extract user_id from token claims
-    @Bean
-    public JwtAuthenticationConverter jwtAuthenticationConverter() {
-        JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
-        converter.setPrincipalClaimName("user_id");  // Extract user_id from JWT claims
-        return converter;
-    }
-    */
 }

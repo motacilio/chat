@@ -1,4 +1,67 @@
-# 🧪 Exemplos Postman - UUIDs Válidos
+# 🧪 Exemplos Postman - Chat API com JWT
+
+## 🔐 NOVO: Autenticação JWT
+
+**IMPORTANTE**: A partir de agora, todos os endpoints gRPC **EXIGEM** autenticação JWT!
+
+### Passo 0: Fazer Login e Obter Token
+
+**Endpoint**: `POST http://localhost:8081/api/auth/login`  
+**Tipo**: HTTP REST (não é gRPC)
+
+**Request Body**:
+```json
+{
+  "username": "alice",
+  "password": "password123"
+}
+```
+
+**Response (200 OK)**:
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VybmFtZSI6ImFsaWNlIiwicm9sZSI6IlJPTEVfVVNFUiIsInN1YiI6ImExYTFhMWExLTExMTEtMTExMS0xMTExLTExMTExMTExMTExMSIsImlhdCI6MTczMjM5MjAwMCwiZXhwIjoxNzMyNDc4NDAwfQ.signature",
+  "tokenType": "Bearer",
+  "expiresIn": 86400000,
+  "user": {
+    "userId": "a1a1a1a1-1111-1111-1111-111111111111",
+    "username": "alice",
+    "role": "ROLE_USER"
+  }
+}
+```
+
+**⚠️ COPIE O TOKEN** - Você vai precisar dele em **TODOS** os requests gRPC!
+
+### Usuários Disponíveis (POC)
+
+| Username | Password | User ID | Role |
+|----------|----------|---------|------|
+| alice | password123 | a1a1a1a1-1111-1111-1111-111111111111 | ROLE_USER |
+| bob | password123 | b2b2b2b2-2222-2222-2222-222222222222 | ROLE_USER |
+| admin | admin123 | 00000000-0000-0000-0000-000000000000 | ROLE_ADMIN |
+
+---
+
+## 📋 Como Usar Token nos Requests gRPC
+
+**TODOS os endpoints gRPC agora exigem o header de autenticação:**
+
+**No Postman gRPC**:
+1. Vá na aba **Metadata**
+2. Adicione:
+   - Key: `authorization`
+   - Value: `Bearer SEU_TOKEN_AQUI`
+
+**Exemplo**:
+```
+Key: authorization
+Value: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+**⚠️ SEM O TOKEN**: Você receberá erro `UNAUTHENTICATED`
+
+---
 
 ## ⚠️ Problema Comum: UUID Inválido
 
@@ -36,6 +99,9 @@ xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 **Método**: `conversation.ConversationService/CreateConversation`  
 **URL**: `localhost:9090` (desmarcar TLS)
 
+**⚠️ REQUER AUTENTICAÇÃO**:
+- **Metadata**: `authorization: Bearer <seu_token>`
+
 ```json
 {
   "type": "PRIVATE",
@@ -68,9 +134,12 @@ xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 **Método**: `chat.ChatService/SendMessage`  
 **URL**: `localhost:9090` (desmarcar TLS)
 
+**⚠️ REQUER AUTENTICAÇÃO**:
+- **Metadata**: `authorization: Bearer <seu_token>`
+
 ```json
 {
-  "conversation_id": "3184a104-6171-45d5-b541-7ee8f36d1062",
+  "conversation_id": "d92d6698-211e-49e5-90ea-66ed4db54f89",
   "sender_id": "a1a1a1a1-1111-1111-1111-111111111111",
   "recipient_id": "b2b2b2b2-2222-2222-2222-222222222222",
   "message_id": "00000001-0000-0000-0000-000000000001",
