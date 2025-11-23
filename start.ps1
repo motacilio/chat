@@ -1,0 +1,324 @@
+# =============================================================================
+# Script de Inicialização Automática - Chat API
+# =============================================================================
+# Descrição: Inicia toda a infraestrutura (Docker) e aplicação Spring Boot
+# Autor: Marcos Pereira
+# Data: 23/11/2025
+# =============================================================================
+
+param(
+    [switch]$SkipBuild,
+    [switch]$Rebuild
+)
+
+# Cores para output
+$GREEN = "Green"
+$YELLOW = "Yellow"
+$RED = "Red"
+$CYAN = "Cyan"
+
+# =============================================================================
+# Funções Auxiliares
+# =============================================================================
+
+function Write-Step {
+    param([string]$Message)
+    Write-Host "`n=== $Message ===" -ForegroundColor $GREEN
+}
+
+function Write-Info {
+    param([string]$Message)
+    Write-Host "  ✓ $Message" -ForegroundColor $CYAN
+}
+
+function Write-Warning {
+    param([string]$Message)
+    Write-Host "  ⚠ $Message" -ForegroundColor $YELLOW
+}
+
+function Write-Error {
+    param([string]$Message)
+    Write-Host "  ✗ $Message" -ForegroundColor $RED
+}
+
+function Test-Port {
+    param([int]$Port)
+    $connection = Test-NetConnection -ComputerName localhost -Port $Port -WarningAction SilentlyContinue
+    return $connection.TcpTestSucceeded
+}
+
+function Wait-ForService {
+    param(
+        [string]$ServiceName,
+        [int]$Port,
+        [int]$MaxAttempts = 30
+    )
+    
+    Write-Info "Aguardando $ServiceName (porta $Port)..."
+    for ($i = 1; $i -le $MaxAttempts; $i++) {
+        if (Test-Port -Port $Port) {
+            Write-Info "$ServiceName disponível!"
+            return $true
+        }
+        Write-Host "    Tentativa $i/$MaxAttempts..." -NoNewline
+        Start-Sleep -Seconds 2
+        Write-Host " aguardando..."
+    }
+    
+    Write-Error "$ServiceName não iniciou após $MaxAttempts tentativas"
+    return $false
+}
+
+# =============================================================================
+# Validações Iniciais
+# =============================================================================
+
+Write-Step "Validando Pré-requisitos"
+
+# Verificar Docker
+if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
+    Write-Error "Docker não encontrado. Instale: https://www.docker.com/products/docker-desktop"
+    exit 1
+}
+Write-Info "Docker encontrado: $(docker --version)"
+
+# Verificar Docker Compose
+if (-not (Get-Command docker-compose -ErrorAction SilentlyContinue)) {
+    Write-Error "Docker Compose não encontrado"
+    exit 1
+}
+Write-Info "Docker Compose encontrado: $(docker-compose --version)"
+
+# Verificar Java 17
+if (-not (Get-Command java -ErrorAction SilentlyContinue)) {
+    Write-Error "Java não encontrado. Instale JDK 17+"
+    exit 1
+}
+$javaVersion = java -version 2>&1 | Select-Object -First 1
+if ($javaVersion -notmatch "17\.|1\.8\.") {
+    Write-Warning "Java 17 recomendado. Versão atual: $javaVersion"
+} else {
+    Write-Info "Java encontrado: $javaVersion"
+}
+
+# Verificar Maven
+if (-not (Get-Command mvn -ErrorAction SilentlyContinue)) {
+    Write-Error "Maven não encontrado. Instale Maven 3.6+"
+    exit 1
+}
+Write-Info "Maven encontrado: $(mvn --version | Select-Object -First 1)"
+
+# =============================================================================
+# Parar Processos Existentes
+# =============================================================================
+
+Write-Step "Verificando Processos Existentes"
+
+# Verificar portas ocupadas
+$ports = @(9090, 8081, 27017, 9092, 2181, 8080)
+$processesToKill = @()
+
+foreach ($port in $ports) {
+    $netstat = netstat -ano | Select-String ":$port\s" | Select-Object -First 1
+    if ($netstat) {
+        $pid = ($netstat -split '\s+')[-1]
+        if ($pid -match '^\d+$') {
+            $process = Get-Process -Id $pid -ErrorAction SilentlyContinue
+            if ($process -and $process.ProcessName -ne "System") {
+                Write-Warning "Porta $port ocupada por PID $pid ($($process.ProcessName))"
+                $processesToKill += $pid
+            }
+        }
+    }
+}
+
+if ($processesToKill.Count -gt 0) {
+    $response = Read-Host "Deseja matar esses processos? (S/N)"
+    if ($response -eq "S" -or $response -eq "s") {
+        foreach ($pid in $processesToKill | Select-Object -Unique) {
+            try {
+                Stop-Process -Id $pid -Force
+                Write-Info "Processo PID $pid finalizado"
+            } catch {
+                Write-Warning "Não foi possível finalizar PID $pid"
+            }
+        }
+        Start-Sleep -Seconds 2
+    }
+}
+
+# =============================================================================
+# Gerenciar Docker Compose
+# =============================================================================
+
+Write-Step "Iniciando Infraestrutura Docker"
+
+# Parar containers existentes se Rebuild
+if ($Rebuild) {
+    Write-Info "Parando e removendo containers existentes..."
+    docker-compose -f docker-compose.dev.yml down -v
+    Start-Sleep -Seconds 2
+}
+
+# Verificar se containers já estão rodando
+$runningContainers = docker ps --format "{{.Names}}" | Select-String -Pattern "mongodb-dev|kafka-dev|zookeeper-dev|kafka-ui-dev"
+
+if ($runningContainers) {
+    Write-Info "Containers já em execução:"
+    docker ps --filter "name=mongodb-dev" --filter "name=kafka-dev" --filter "name=zookeeper-dev" --filter "name=kafka-ui-dev" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+} else {
+    Write-Info "Iniciando containers Docker Compose..."
+    docker-compose -f docker-compose.dev.yml up -d
+    
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Falha ao iniciar Docker Compose"
+        exit 1
+    }
+}
+
+# Aguardar serviços
+Write-Step "Aguardando Serviços Docker"
+
+if (-not (Wait-ForService -ServiceName "MongoDB" -Port 27017)) {
+    Write-Error "MongoDB não iniciou. Verifique: docker logs mongodb-dev"
+    exit 1
+}
+
+if (-not (Wait-ForService -ServiceName "Kafka" -Port 9092)) {
+    Write-Error "Kafka não iniciou. Verifique: docker logs kafka-dev"
+    exit 1
+}
+
+Write-Info "Aguardando Kafka estabilizar (10 segundos)..."
+Start-Sleep -Seconds 10
+
+# Verificar topics Kafka
+Write-Info "Verificando topics Kafka..."
+$topics = docker exec kafka-dev kafka-topics --list --bootstrap-server localhost:9092 2>$null
+if ($topics -match "message-events" -and $topics -match "state-update-events") {
+    Write-Info "Topics Kafka criados: message-events, state-update-events"
+} else {
+    Write-Warning "Topics ainda não criados (serão criados automaticamente)"
+}
+
+# =============================================================================
+# Compilar Aplicação
+# =============================================================================
+
+if (-not $SkipBuild) {
+    Write-Step "Compilando Aplicação"
+    
+    # Verificar se JAR já existe
+    if (Test-Path "target/meu-projeto-chat-1.0.0-SNAPSHOT.jar") {
+        $response = Read-Host "JAR já existe. Recompilar? (S/N)"
+        if ($response -ne "S" -and $response -ne "s") {
+            Write-Info "Usando JAR existente"
+            $SkipBuild = $true
+        }
+    }
+    
+    if (-not $SkipBuild) {
+        Write-Info "Executando: mvn clean package -DskipTests"
+        mvn clean package -DskipTests
+        
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "Falha na compilação Maven"
+            exit 1
+        }
+        
+        Write-Info "Compilação concluída!"
+    }
+} else {
+    Write-Info "Compilação ignorada (-SkipBuild)"
+}
+
+# =============================================================================
+# Iniciar Spring Boot
+# =============================================================================
+
+Write-Step "Iniciando Spring Boot"
+
+# Configurar JAVA_HOME
+$env:JAVA_HOME = "C:\Program Files\Eclipse Adoptium\jdk-17.0.17.10-hotspot"
+Write-Info "JAVA_HOME: $env:JAVA_HOME"
+
+# Verificar se aplicação já está rodando
+if (Test-Port -Port 9090) {
+    Write-Warning "Porta 9090 já em uso. Aplicação pode já estar rodando."
+    $response = Read-Host "Continuar mesmo assim? (S/N)"
+    if ($response -ne "S" -and $response -ne "s") {
+        Write-Info "Inicialização cancelada"
+        exit 0
+    }
+}
+
+# Iniciar aplicação em background
+Write-Info "Iniciando aplicação Spring Boot..."
+$process = Start-Process -FilePath "java" `
+    -ArgumentList "-jar", "target/meu-projeto-chat-1.0.0-SNAPSHOT.jar" `
+    -WindowStyle Minimized `
+    -PassThru
+
+Write-Info "Processo iniciado com PID: $($process.Id)"
+
+# Aguardar aplicação iniciar
+Write-Info "Aguardando aplicação iniciar (30 segundos)..."
+Start-Sleep -Seconds 30
+
+# =============================================================================
+# Validar Inicialização
+# =============================================================================
+
+Write-Step "Validando Inicialização"
+
+# Testar gRPC
+if (Test-Port -Port 9090) {
+    Write-Info "gRPC Server: OK (porta 9090)"
+} else {
+    Write-Error "gRPC Server não respondendo na porta 9090"
+}
+
+# Testar Actuator
+try {
+    $health = Invoke-RestMethod -Uri "http://localhost:8081/actuator/health" -TimeoutSec 5
+    if ($health.status -eq "UP") {
+        Write-Info "Actuator Health: $($health.status)"
+        if ($health.components.mongo.status -eq "UP") {
+            Write-Info "MongoDB Connection: UP"
+        } else {
+            Write-Warning "MongoDB Connection: $($health.components.mongo.status)"
+        }
+    }
+} catch {
+    Write-Warning "Actuator não respondeu. Aguarde mais alguns segundos..."
+}
+
+# =============================================================================
+# Informações Finais
+# =============================================================================
+
+Write-Host "`n" -NoNewline
+Write-Host "========================================" -ForegroundColor $GREEN
+Write-Host "   INICIALIZAÇÃO CONCLUÍDA COM SUCESSO" -ForegroundColor $GREEN
+Write-Host "========================================" -ForegroundColor $GREEN
+
+Write-Host "`nServiços disponíveis:" -ForegroundColor $CYAN
+Write-Host "  • gRPC API........: localhost:9090" -ForegroundColor White
+Write-Host "  • Actuator........: http://localhost:8081/actuator/health" -ForegroundColor White
+Write-Host "  • MongoDB.........: localhost:27017 (admin/password)" -ForegroundColor White
+Write-Host "  • Kafka...........: localhost:9092" -ForegroundColor White
+Write-Host "  • Kafka UI........: http://localhost:8080" -ForegroundColor White
+
+Write-Host "`nPróximos passos:" -ForegroundColor $CYAN
+Write-Host "  1. Testar com Postman: localhost:9090 (desmarcar TLS)" -ForegroundColor White
+Write-Host "  2. Ver exemplos em: POSTMAN-EXAMPLES.md" -ForegroundColor White
+Write-Host "  3. Monitorar Kafka: http://localhost:8080" -ForegroundColor White
+
+Write-Host "`nPID da aplicação: $($process.Id)" -ForegroundColor $YELLOW
+Write-Host "Para parar: Stop-Process -Id $($process.Id)" -ForegroundColor $YELLOW
+
+Write-Host "`nLogs em tempo real:" -ForegroundColor $CYAN
+Write-Host "  docker logs -f mongodb-dev" -ForegroundColor White
+Write-Host "  docker logs -f kafka-dev" -ForegroundColor White
+
+Write-Host "`n"
