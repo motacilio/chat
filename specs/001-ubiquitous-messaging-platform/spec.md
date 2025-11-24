@@ -7,6 +7,14 @@
 
 ## Clarifications
 
+### Session 2025-11-23
+
+- Q: The spec requires "sequence_number" for message ordering within conversations (FR-010), but doesn't specify who generates it. Should the system: → A: Server generates sequence_number atomically on message persistence (MongoDB findAndModify on conversation counter)
+- Q: The spec defines DELIVERED state as "reached recipient device" (FR-007), but doesn't specify the exact trigger. When should the system transition a message from SENT to DELIVERED? → A: On successful gRPC ACK from client (client confirms message received in memory)
+- Q: FR-031 specifies webhook retry logic with "3 attempts with exponential backoff" but doesn't define the backoff parameters. What should be the retry intervals? → A: 3 attempts with exponential backoff (2^retry seconds: 2s, 4s, 8s)
+- Q: The spec doesn't define conversation lifecycle states. What should happen when a user wants to delete/leave a 1:1 private conversation? → A: Mark conversation as deleted, hide from ListConversations, reject new messages with "Conversation deleted" error
+- Q: NFR-017 requires structured logging but doesn't specify which message fields can be logged for observability vs privacy. What should be included in logs? → A: Only message_id, conversation_id, sender_id, timestamp, sequence_number (exclude message_text and file content)
+
 ### Session 2025-11-22
 
 - Q: The spec assumes users are "pre-authenticated" but doesn't specify the authentication mechanism. Which approach should the system use? → A: OAuth 2.0 with JWT tokens
@@ -135,6 +143,7 @@ Users MUST be able to send messages that are routed to external platforms (Whats
 
 - **What happens when a message exceeds maximum text size?** System MUST reject messages >100 KB with error "Message exceeds maximum size" (prevents abuse and ensures performance).
 - **What happens when conversation_id does not exist?** System MUST return "Conversation not found" error and reject message submission.
+- **What happens when a user tries to send a message to a deleted conversation?** System MUST return "Conversation deleted" error and reject message submission.
 - **What happens when recipient user_id is invalid?** System MUST return "Recipient not found" error during conversation creation.
 - **What happens when a user tries to send messages faster than rate limit?** System MUST queue messages up to 200 (2x the 100 messages/minute limit) with backpressure, processing them at the rate limit pace. Requests exceeding 200 queued messages return "Rate limit queue full" error with retry-after timestamp.
 - **What happens when Object Storage (MinIO) is unavailable during file upload?** System MUST return "Storage unavailable" error and allow user to retry upload later.
@@ -160,10 +169,10 @@ Users MUST be able to send messages that are routed to external platforms (Whats
 - **FR-004a**: When conversation_id does not exist, system MUST auto-create PRIVATE conversation with both sender_id and recipient_id as initial participants
 - **FR-005**: System MUST persist message metadata (message_id, conversation_id, sender_id, timestamp, state, message_text) in MongoDB
 - **FR-006**: System MUST guarantee message idempotency using unique message_id—duplicate submissions MUST be rejected
-- **FR-007**: System MUST support message states: SENT (accepted by server), DELIVERED (reached recipient device), READ (opened by recipient)
+- **FR-007**: System MUST support message states: SENT (accepted by server), DELIVERED (confirmed by recipient client via gRPC ACK), READ (opened by recipient)
 - **FR-008**: System MUST deliver messages in real-time to online users via gRPC bidirectional streaming within 2 seconds
 - **FR-009**: System MUST store messages for offline users and deliver when they reconnect (store-and-forward pattern)
-- **FR-010**: System MUST preserve message ordering within a conversation using per-conversation sequence numbers
+- **FR-010**: System MUST preserve message ordering within a conversation using per-conversation sequence numbers (server-generated atomically via MongoDB findAndModify on conversation counter to prevent race conditions)
 - **FR-011**: System MUST provide conversation history API with pagination (default 50 messages, max 100 per request)
 
 #### Conversation Management (P1 - MVP)
@@ -198,7 +207,7 @@ Users MUST be able to send messages that are routed to external platforms (Whats
 #### Webhooks & Events (P2)
 
 - **FR-030**: System MUST expose webhook API for clients to register callback URLs for events (message_delivered, message_read)
-- **FR-031**: System MUST publish events to registered webhooks with retry logic (3 attempts with exponential backoff)
+- **FR-031**: System MUST publish events to registered webhooks with retry logic (3 attempts with exponential backoff: 2s, 4s, 8s)
 - **FR-032**: System MUST provide gRPC streaming API for real-time event subscription (alternative to webhooks)
 
 #### Multi-Platform Routing (P4 - Post-MVP)
@@ -239,7 +248,7 @@ Users MUST be able to send messages that are routed to external platforms (Whats
 
 #### Observability (P2)
 
-- **NFR-017**: System MUST implement structured logging (JSON format) with centralized aggregation via Prometheus
+- **NFR-017**: System MUST implement structured logging (JSON format) with centralized aggregation via Prometheus. Logs MUST include message_id, conversation_id, sender_id, timestamp, sequence_number for observability but MUST exclude message_text and file content to preserve privacy.
 - **NFR-018**: System MUST expose metrics via Prometheus exporters: messages/second, latency percentiles, error rates, Kafka consumer lag, MongoDB connection pool usage
 - **NFR-019**: System MUST implement distributed tracing using Jaeger for request flows across services
 - **NFR-020**: System MUST provide Grafana dashboards for real-time monitoring of key metrics
@@ -255,7 +264,7 @@ Users MUST be able to send messages that are routed to external platforms (Whats
 ### Key Entities
 
 - **User**: Represents a platform user with unique user_id (UUID, primary identifier). Attributes: user_id (UUID), username (unique, human-readable), email (unique), created_at, linked_accounts (for multi-platform mapping). Authentication via OAuth 2.0 JWT tokens containing user_id claim.
-- **Conversation**: Represents a messaging context (1:1 or group). Attributes: conversation_id (UUID), type (PRIVATE/GROUP), participants (list of user_id), admin_user_ids (list of user_id with admin privileges, only for GROUP type), creator_id (user_id of conversation creator), created_at, last_message_at.
+- **Conversation**: Represents a messaging context (1:1 or group). Attributes: conversation_id (UUID), type (PRIVATE/GROUP), participants (list of user_id), admin_user_ids (list of user_id with admin privileges, only for GROUP type), creator_id (user_id of conversation creator), created_at, last_message_at, status (ACTIVE/DELETED - when DELETED, conversation is hidden from ListConversations and new messages are rejected).
 - **Message**: Abstract base entity with common attributes: message_id (UUID, unique), conversation_id, sender_id, timestamp, state (SENT/DELIVERED/READ), sequence_number (per conversation), state_history (array of {recipient_id, state, timestamp} for per-recipient tracking in group messages). Two concrete subtypes:
   - **TextMessage**: Contains message_text field (string, max 100 KB). Used for text-only messages.
   - **FileMessage**: Contains file_metadata reference. Used for file-only messages (no text caption).

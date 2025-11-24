@@ -218,6 +218,87 @@ public class MessageService {
     }
     
     /**
+     * Create a file message after upload completes.
+     * (User Story 4 - P2: File messages follow same lifecycle as text messages)
+     * 
+     * This method creates a Message entity with fileMetadata instead of messageText,
+     * following the XOR constraint (a message contains EITHER text OR file, not both).
+     * 
+     * Flow:
+     * 1. Validate conversation exists and sender is participant
+     * 2. Generate message UUID and sequence number
+     * 3. Create Message with fileMetadata embedded
+     * 4. Persist to MongoDB
+     * 5. Return Message for Kafka publishing (done by caller)
+     * 
+     * Clean Code Principles:
+     * - Single Responsibility: Only creates Message entity, doesn't publish to Kafka
+     * - Open/Closed: Reuses existing validation and sequence generation methods
+     * - Dependency Inversion: Caller decides how to publish (Kafka/webhook/etc)
+     * 
+     * @param conversationId Conversation UUID
+     * @param senderId       Sender user ID
+     * @param recipientIds   List of recipient user IDs
+     * @param fileMetadata   File metadata from MinIO storage
+     * @return Created Message entity (ready for Kafka publishing)
+     * @throws IllegalArgumentException if validation fails
+     * @throws SecurityException if sender is not participant
+     */
+    public Message createFileMessage(
+            String conversationId, 
+            String senderId, 
+            java.util.List<String> recipientIds,
+            com.chat.model.FileMetadata fileMetadata) {
+        
+        logger.info("Creating file message - conversation: {}, sender: {}, file: {}", 
+                   conversationId, senderId, fileMetadata.getFileId());
+        
+        // Validate conversation exists
+        Conversation conversation = conversationRepository.findByConversationId(conversationId)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Conversation not found: " + conversationId));
+        
+        // Validate sender is participant (FR-013 authorization)
+        if (!conversation.isParticipant(senderId)) {
+            logger.warn("Unauthorized file message attempt - sender: {} not in conversation: {}", 
+                       senderId, conversationId);
+            throw new SecurityException(
+                    "Sender " + senderId + " is not a participant in conversation " + conversationId);
+        }
+        
+        // Generate message UUID (server-generated for file messages)
+        String messageId = java.util.UUID.randomUUID().toString();
+        
+        // Generate sequence number (atomic increment per FR-007)
+        Long sequenceNumber = generateSequenceNumber(conversationId);
+        
+        // Create Message entity with fileMetadata (XOR constraint: no messageText)
+        Message message = Message.builder()
+                .messageId(messageId)
+                .conversationId(conversationId)
+                .senderId(senderId)
+                .messageText(null)  // Explicitly null for file messages (XOR with fileMetadata)
+                .fileMetadata(fileMetadata)
+                .timestamp(java.time.Instant.now())
+                .sequenceNumber(sequenceNumber)
+                .stateHistory(new java.util.ArrayList<>())
+                .build();
+        
+        // Add initial state transition: SENT
+        message.getStateHistory().add(
+                com.chat.model.MessageStateTransition.create(MessageStatus.SENT, null)
+        );
+        
+        // Persist to MongoDB
+        Message savedMessage = messageRepository.save(message);
+        
+        logger.info("File message created - messageId: {}, fileId: {}, sequence: {}", 
+                   messageId, fileMetadata.getFileId(), sequenceNumber);
+        
+        return savedMessage;
+    }
+    
+    /**
      * Internal class for sequence counter storage.
      * Stored in separate collection for atomic increment operations.
      */

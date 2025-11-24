@@ -63,8 +63,23 @@ public class Message {
     /**
      * Text content (null if file message)
      * Max size: 100 KB (validated in MessageService per edge case spec)
+     * 
+     * Constraint (User Story 4): Mutually exclusive with fileMetadata
+     * A message contains EITHER text OR file, not both (enforced in MessageService)
      */
     private String messageText;
+    
+    /**
+     * File metadata reference (null if text message)
+     * Embedded document containing file details from MinIO storage
+     * 
+     * Constraint (User Story 4): Mutually exclusive with messageText
+     * When present, this is a file message following same state lifecycle (SENT → DELIVERED → READ)
+     * 
+     * Pattern: Metadata embedded for denormalization (avoids join queries)
+     * File content stored separately in MinIO for blob efficiency
+     */
+    private FileMetadata fileMetadata;
     
     /**
      * Send timestamp
@@ -135,9 +150,61 @@ public class Message {
                 .conversationId(conversationId)
                 .senderId(senderId)
                 .messageText(messageText)
+                .fileMetadata(null) // Explicitly null for text messages
                 .timestamp(now)
                 .sequenceNumber(sequenceNumber)
                 .stateHistory(stateHistory)
                 .build();
+    }
+    
+    /**
+     * Factory method to create new file message with SENT state.
+     * (User Story 4 - P2: Upload and Download Files)
+     * 
+     * @param messageId      UUID identifier (client-generated)
+     * @param conversationId Conversation UUID
+     * @param senderId       Sender user_id
+     * @param fileMetadata   File metadata from completed upload
+     * @param sequenceNumber Per-conversation sequence number
+     * @return Message instance with initial SENT state and file attachment
+     */
+    public static Message createFileMessage(
+            String messageId,
+            String conversationId,
+            String senderId,
+            FileMetadata fileMetadata,
+            Long sequenceNumber) {
+        Instant now = Instant.now();
+        ArrayList<MessageStateTransition> stateHistory = new ArrayList<>();
+        stateHistory.add(MessageStateTransition.create(MessageStatus.SENT, null));
+        
+        return Message.builder()
+                .messageId(messageId)
+                .conversationId(conversationId)
+                .senderId(senderId)
+                .messageText(null) // Explicitly null for file messages
+                .fileMetadata(fileMetadata)
+                .timestamp(now)
+                .sequenceNumber(sequenceNumber)
+                .stateHistory(stateHistory)
+                .build();
+    }
+    
+    /**
+     * Check if this is a text message.
+     * 
+     * @return true if message contains text (not file)
+     */
+    public boolean isTextMessage() {
+        return messageText != null && fileMetadata == null;
+    }
+    
+    /**
+     * Check if this is a file message.
+     * 
+     * @return true if message contains file (not text)
+     */
+    public boolean isFileMessage() {
+        return fileMetadata != null && messageText == null;
     }
 }

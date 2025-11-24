@@ -1,0 +1,511 @@
+{
+	"info": {
+		"_postman_id": "file-upload-layer2-validation",
+		"name": "Chat API - Layer 2 File Upload Tests",
+		"description": "Validação completa do fluxo de upload/download de arquivos com MinIO",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8081",
+			"type": "string"
+		},
+		{
+			"key": "jwtToken",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "fileId",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "uploadUrl",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "downloadUrl",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "conversationId",
+			"value": "550e8400-e29b-41d4-a716-446655440000",
+			"type": "string"
+		}
+	],
+	"item": [
+		{
+			"name": "0. Autenticação",
+			"item": [
+				{
+					"name": "Login - Obter JWT Token",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status 200 OK\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response tem token\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.token).to.exist;",
+									"    pm.collectionVariables.set(\"jwtToken\", jsonData.token);",
+									"    console.log(\"JWT Token salvo: \" + jsonData.token.substring(0, 50) + \"...\");",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"alice\",\n  \"password\": \"password123\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/login",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"login"
+							]
+						},
+						"description": "Autentica usuário e obtém JWT token para usar nos testes de file upload"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "1. Upload Flow - Arquivo Pequeno (1 MB)",
+			"item": [
+				{
+					"name": "1.1 Iniciar Upload - test-document.pdf",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status 201 Created\", function () {",
+									"    pm.response.to.have.status(201);",
+									"});",
+									"",
+									"pm.test(\"Response tem fileId e uploadUrl\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.fileId).to.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);",
+									"    pm.expect(jsonData.uploadUrl).to.include(\"localhost:9000\");",
+									"    pm.expect(jsonData.uploadUrl).to.include(\"X-Amz-Algorithm\");",
+									"    pm.expect(jsonData.totalChunks).to.eql(1);",
+									"    pm.expect(jsonData.resumable).to.be.true;",
+									"    ",
+									"    pm.collectionVariables.set(\"fileId\", jsonData.fileId);",
+									"    pm.collectionVariables.set(\"uploadUrl\", jsonData.uploadUrl);",
+									"    ",
+									"    console.log(\"FileId: \" + jsonData.fileId);",
+									"    console.log(\"Upload URL: \" + jsonData.uploadUrl);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwtToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"conversationId\": \"{{conversationId}}\",\n  \"filename\": \"test-document.pdf\",\n  \"sizeBytes\": 1048576,\n  \"mimeType\": \"application/pdf\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/files/initiate",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"files",
+								"initiate"
+							]
+						},
+						"description": "Inicia upload de arquivo de 1 MB, retorna pre-signed URL para PUT no MinIO"
+					},
+					"response": []
+				},
+				{
+					"name": "1.2 [MANUAL] Upload Arquivo para MinIO",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/pdf"
+							}
+						],
+						"body": {
+							"mode": "file",
+							"file": {
+								"src": "C:/temp/test-document.pdf"
+							}
+						},
+						"url": {
+							"raw": "{{uploadUrl}}",
+							"host": [
+								"{{uploadUrl}}"
+							]
+						},
+						"description": "⚠️ PASSO MANUAL:\n1. Criar arquivo de teste em C:\\temp\\test-document.pdf (1 MB)\n2. Copiar uploadUrl da resposta do passo 1.1\n3. Substituir {{uploadUrl}} pela URL completa\n4. Selecionar arquivo em Body > binary\n5. Enviar PUT request"
+					},
+					"response": []
+				},
+				{
+					"name": "1.3 Completar Upload",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status 200 OK\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Upload status é COMPLETED\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.uploadStatus).to.eql(\"COMPLETED\");",
+									"    pm.expect(jsonData.uploadedAt).to.exist;",
+									"    pm.expect(jsonData.filename).to.eql(\"test-document.pdf\");",
+									"    ",
+									"    console.log(\"Upload completado em: \" + jsonData.uploadedAt);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwtToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"fileId\": \"{{fileId}}\",\n  \"checksumMd5\": \"d41d8cd98f00b204e9800998ecf8427e\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/files/complete",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"files",
+								"complete"
+							]
+						},
+						"description": "Marca upload como concluído e valida checksum MD5. ⚠️ Substitua checksumMd5 pelo hash real do arquivo."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "2. Download Flow",
+			"item": [
+				{
+					"name": "2.1 Gerar URL de Download",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status 200 OK\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response tem downloadUrl\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.downloadUrl).to.include(\"localhost:9000\");",
+									"    pm.expect(jsonData.downloadUrl).to.include(\"X-Amz-Signature\");",
+									"    pm.expect(jsonData.filename).to.eql(\"test-document.pdf\");",
+									"    pm.expect(jsonData.sizeBytes).to.eql(1048576);",
+									"    ",
+									"    pm.collectionVariables.set(\"downloadUrl\", jsonData.downloadUrl);",
+									"    ",
+									"    console.log(\"Download URL: \" + jsonData.downloadUrl);",
+									"    console.log(\"Expira em: \" + jsonData.downloadExpiresAt);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwtToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/files/{{fileId}}/download",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"files",
+								"{{fileId}}",
+								"download"
+							]
+						},
+						"description": "Gera pre-signed URL para download seguro (expira em 1 hora)"
+					},
+					"response": []
+				},
+				{
+					"name": "2.2 [MANUAL] Download Arquivo do MinIO",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{downloadUrl}}",
+							"host": [
+								"{{downloadUrl}}"
+							]
+						},
+						"description": "⚠️ PASSO MANUAL:\n1. Copiar downloadUrl da resposta do passo 2.1\n2. Substituir {{downloadUrl}} pela URL completa\n3. Enviar GET request\n4. Salvar response como arquivo\n5. Comparar MD5 com arquivo original"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "3. Validações de Erro",
+			"item": [
+				{
+					"name": "3.1 Upload > 2 GB (Deve Rejeitar)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status 400 Bad Request\", function () {",
+									"    pm.response.to.have.status(400);",
+									"});",
+									"",
+									"pm.test(\"Mensagem de erro sobre tamanho máximo\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.message).to.include(\"exceeds maximum\");",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwtToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"conversationId\": \"{{conversationId}}\",\n  \"filename\": \"huge-file.iso\",\n  \"sizeBytes\": 2147483649,\n  \"mimeType\": \"application/octet-stream\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/files/initiate",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"files",
+								"initiate"
+							]
+						},
+						"description": "Valida que arquivos maiores que 2 GB são rejeitados (FR-024)"
+					},
+					"response": []
+				},
+				{
+					"name": "3.2 Sem JWT Token (Deve Retornar 401)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status 401 Unauthorized\", function () {",
+									"    pm.response.to.have.status(401);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"conversationId\": \"{{conversationId}}\",\n  \"filename\": \"test.txt\",\n  \"sizeBytes\": 100,\n  \"mimeType\": \"text/plain\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/files/initiate",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"files",
+								"initiate"
+							]
+						},
+						"description": "Valida que endpoints requerem autenticação JWT"
+					},
+					"response": []
+				},
+				{
+					"name": "3.3 FileId Inválido (Deve Retornar 404)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status 404 Not Found\", function () {",
+									"    pm.response.to.have.status(404);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwtToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/files/00000000-0000-0000-0000-000000000000/download",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"files",
+								"00000000-0000-0000-0000-000000000000",
+								"download"
+							]
+						},
+						"description": "Valida que fileId inexistente retorna 404"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "4. Upload Arquivo Grande (10 MB)",
+			"item": [
+				{
+					"name": "4.1 Iniciar Upload - large-video.mp4",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status 201 Created\", function () {",
+									"    pm.response.to.have.status(201);",
+									"});",
+									"",
+									"pm.test(\"totalChunks calculado corretamente\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.totalChunks).to.eql(2);",
+									"    pm.expect(jsonData.chunkSizeBytes).to.eql(5242880);",
+									"    ",
+									"    console.log(\"Total chunks: \" + jsonData.totalChunks);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{jwtToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"conversationId\": \"{{conversationId}}\",\n  \"filename\": \"large-video.mp4\",\n  \"sizeBytes\": 10485760,\n  \"mimeType\": \"video/mp4\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/files/initiate",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"files",
+								"initiate"
+							]
+						},
+						"description": "Valida cálculo de chunks: 10 MB / 5 MB = 2 chunks"
+					},
+					"response": []
+				}
+			]
+		}
+	]
+}

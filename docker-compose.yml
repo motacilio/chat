@@ -82,19 +82,27 @@ services:
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
 
-  # MinIO Object Storage (S3-compatible, for P2 file uploads - deferred from MVP)
+  # MinIO Object Storage (User Story 4 - P2: File Upload/Download up to 2 GB)
+  # S3-compatible API for cost-effective blob storage
+  # API Port: 9000, Console UI: 9001 (http://localhost:9001)
+  # Bucket: chat-files (auto-created by FileStorageService)
   minio:
     image: minio/minio:latest
     container_name: minio
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "9000:9000"  # S3 API
+      - "9001:9001"  # Web Console
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
     volumes:
       - minio_data:/data
     command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # Chat API (Spring Boot gRPC Server)
   chat-api:

@@ -2,9 +2,16 @@ C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\cha
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\config\GrpcServerConfig.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\config\KafkaConsumerConfig.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\config\KafkaProducerConfig.java
+C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\config\MinioConfig.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\config\MongoConfig.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\config\SecurityConfig.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\controller\AuthenticationController.java
+C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\controller\FileController.java
+C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\dto\CompleteUploadRequest.java
+C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\dto\CompleteUploadResponse.java
+C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\dto\DownloadFileResponse.java
+C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\dto\InitiateUploadRequest.java
+C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\dto\InitiateUploadResponse.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\dto\LoginRequest.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\dto\LoginResponse.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\dto\MessageEventDto.java
@@ -16,6 +23,7 @@ C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\cha
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\model\AuthUser.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\model\Conversation.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\model\ConversationType.java
+C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\model\FileMetadata.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\model\Message.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\model\MessageStateTransition.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\model\MessageStatus.java
@@ -25,6 +33,7 @@ C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\cha
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\repository\UserRepository.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\security\AuthenticationInterceptor.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\service\ConversationService.java
+C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\service\FileStorageService.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\service\JwtService.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\service\MessageService.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\service\StreamingService.java
