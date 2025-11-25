@@ -6,6 +6,8 @@ Auto-generated from all feature plans. Last updated: 2025-11-18
 - Java 17 (LTS) + Spring Boot 3.2.5, gRPC 1.64.0, Protobuf 3.25.3, Spring Kafka, Spring Data MongoDB (001-ubiquitous-messaging-platform)
 - MongoDB (NoSQL for message persistence, conversation state, user profiles) (001-ubiquitous-messaging-platform)
 - Java 17 (Spring Boot 3.2.5) (001-ubiquitous-messaging-platform)
+- [e.g., Python 3.11, Swift 5.9, Rust 1.75 or NEEDS CLARIFICATION] + [e.g., FastAPI, UIKit, LLVM or NEEDS CLARIFICATION] (001-ubiquitous-messaging-platform)
+- [if applicable, e.g., PostgreSQL, CoreData, files or N/A] (001-ubiquitous-messaging-platform)
 
 - Java 17 (LTS - per Constitution educational standards) + Spring Boot 3.2.5, gRPC 1.64.0 + Protobuf 3.25.3, Spring AMQP (RabbitMQ), Spring Data MongoDB (001-ubiquitous-messaging-platform)
 
@@ -25,10 +27,10 @@ tests/
 Java 17 (LTS - per Constitution educational standards): Follow standard conventions
 
 ## Recent Changes
+- 001-ubiquitous-messaging-platform: Added [e.g., Python 3.11, Swift 5.9, Rust 1.75 or NEEDS CLARIFICATION] + [e.g., FastAPI, UIKit, LLVM or NEEDS CLARIFICATION]
 - 001-ubiquitous-messaging-platform: Added Java 17 (Spring Boot 3.2.5)
 - 001-ubiquitous-messaging-platform: Added Java 17 (LTS) + Spring Boot 3.2.5, gRPC 1.64.0, Protobuf 3.25.3, Spring Kafka, Spring Data MongoDB
 
-- 001-ubiquitous-messaging-platform: Added Java 17 (LTS - per Constitution educational standards) + Spring Boot 3.2.5, gRPC 1.64.0 + Protobuf 3.25.3, Spring AMQP (RabbitMQ), Spring Data MongoDB
 
 <!-- MANUAL ADDITIONS START -->
 <!-- MANUAL ADDITIONS END -->

@@ -59,10 +59,17 @@ function Get-JwtToken {
             -ContentType "application/json" `
             -Body $loginBody
         
-        Write-Success "Autenticado como $($response.username)"
-        Write-Host "   UserId: $($response.userId)" -ForegroundColor Gray
+        # Response shape: { token, tokenType, expiresIn, user: { userId, username, role } }
+        $username = $response.user.username
+        $userId = $response.user.userId
+
+        Write-Success "Autenticado como $username"
+        Write-Host "   UserId: $userId" -ForegroundColor Gray
         Write-Host "   Token: $($response.token.Substring(0, 50))..." -ForegroundColor Gray
-        
+
+        # Expor o userId globalmente para incluir em requests que exigem senderId
+        $global:UserId = $userId
+
         return $response.token
     }
     catch {
@@ -192,6 +199,8 @@ function Test-CompleteUpload {
     $body = @{
         fileId = $FileId
         checksumMd5 = $Checksum
+        senderId = $global:UserId
+        recipientIds = @("b2b2b2b2-2222-2222-2222-222222222222")
     } | ConvertTo-Json
     
     try {

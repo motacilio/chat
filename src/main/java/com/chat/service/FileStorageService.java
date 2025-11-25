@@ -50,6 +50,9 @@ public class FileStorageService {
     private final String minioBucketName;
     private final MongoTemplate mongoTemplate;
     
+    @Value("${minio.external-endpoint:http://localhost:9000}")
+    private String externalEndpoint;
+    
     @Value("${minio.download-url-expiration-seconds:3600}")
     private int downloadUrlExpirationSeconds;
     

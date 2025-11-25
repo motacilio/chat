@@ -37,6 +37,9 @@ public class MinioConfig {
     @Value("${minio.endpoint:http://localhost:9000}")
     private String minioEndpoint;
     
+    @Value("${minio.external-endpoint:http://localhost:9000}")
+    private String externalEndpoint;
+    
     @Value("${minio.access-key:minioadmin}")
     private String minioAccessKey;
     
@@ -84,5 +87,10 @@ public class MinioConfig {
     @Bean
     public String minioBucketName() {
         return bucketName;
+    }
+
+    @Bean
+    public String minioExternalEndpoint() {
+        return externalEndpoint;
     }
 }

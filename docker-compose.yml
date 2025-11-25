@@ -1,41 +1,19 @@
 version: '3.8'
 
 services:
-  # MongoDB (Persistence with replica set)
+  # MongoDB (Persistence - standalone mode for development)
   mongodb:
     image: mongo:7.0
     container_name: mongodb
     ports:
       - "27017:27017"
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: password
     volumes:
       - mongodb_data:/data/db
-    command: ["--replSet", "rs0"]
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 10s
       timeout: 5s
       retries: 5
-
-  # MongoDB Replica Set Initializer (one-time)
-  mongodb-init:
-    image: mongo:7.0
-    container_name: mongodb-init
-    depends_on:
-      - mongodb
-    command: >
-      bash -c "
-        sleep 10 &&
-        mongosh --host mongodb:27017 -u admin -p password --authenticationDatabase admin --eval '
-          rs.initiate({
-            _id: \"rs0\",
-            members: [{ _id: 0, host: \"mongodb:27017\" }]
-          })
-        '
-      "
-    restart: "no"
 
   # Zookeeper (Kafka coordination service)
   zookeeper:
@@ -115,8 +93,10 @@ services:
       - "8081:8081"  # Spring Boot Actuator (health checks)
     environment:
       SPRING_PROFILES_ACTIVE: docker
-      MONGODB_URI: mongodb://admin:password@mongodb:27017/chat?authSource=admin&replicaSet=rs0
+      MONGODB_URI: mongodb://mongodb:27017/chat
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    extra_hosts:
+      - "localhost:host-gateway"  # Allow container to reach MinIO at localhost:9000
     depends_on:
       kafka:
         condition: service_healthy

@@ -5,7 +5,9 @@ import com.chat.dto.CompleteUploadResponse;
 import com.chat.dto.DownloadFileResponse;
 import com.chat.dto.InitiateUploadRequest;
 import com.chat.dto.InitiateUploadResponse;
+import com.chat.dto.MessageEventDto;
 import com.chat.model.FileMetadata;
+import com.chat.model.Message;
 import com.chat.model.FileMetadata.FileUploadStatus;
 import com.chat.service.FileStorageService;
 import com.chat.service.JwtService;
@@ -16,6 +18,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
@@ -53,7 +56,7 @@ public class FileController {
     private com.chat.service.MessageService messageService;
     
     @Autowired
-    private org.springframework.kafka.core.KafkaTemplate<String, com.chat.model.Message> kafkaTemplate;
+    private KafkaTemplate<String, MessageEventDto> messageEventKafkaTemplate;
 
     @Value("${minio.download-url-expiration-seconds:3600}")
     private int downloadUrlExpirationSeconds;
@@ -174,8 +177,17 @@ public class FileController {
                 fileMetadata
         );
 
-        // Step 6: Publish to Kafka for async delivery (same as text messages)
-        kafkaTemplate.send("message-events", fileMessage);
+        // Step 6: Publish to Kafka for async delivery (convert to MessageEventDto like text messages)
+        MessageEventDto messageEvent = MessageEventDto.builder()
+                .messageId(fileMessage.getMessageId())
+                .conversationId(fileMessage.getConversationId())
+                .senderId(fileMessage.getSenderId())
+                .messageText(null)  // File messages have null messageText (XOR with fileMetadata)
+                .sequenceNumber(fileMessage.getSequenceNumber())
+                .timestamp(Instant.now().toString())
+                .build();
+        
+        messageEventKafkaTemplate.send("message-events", fileMetadata.getConversationId(), messageEvent);
         log.info("[FileController] File message published to Kafka - messageId: {}, fileId: {}", 
                  fileMessage.getMessageId(), fileMetadata.getFileId());
 

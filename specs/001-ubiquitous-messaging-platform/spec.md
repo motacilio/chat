@@ -7,6 +7,14 @@
 
 ## Clarifications
 
+### Session 2025-11-24
+
+- Q: Adapter failure handling strategy for multi-platform routing - FR-038 states "best-effort with retry" but doesn't define retry parameters. What should be the retry policy? → A: 3 retry attempts with exponential backoff (2s, 4s, 8s) then circuit breaker opens for 60s
+- Q: Platform selection behavior on partial failure - FR-036 allows channels: ["whatsapp", "instagram"] but doesn't specify system behavior when one adapter succeeds and another fails. How should the system respond? → A: Return partial success with per-platform results {whatsapp: success, instagram: failed}
+- Q: Multiple accounts per platform - FR-035 mentions mapping user_id to external accounts but doesn't specify if a user can have multiple accounts on the same platform (e.g., 2 WhatsApp numbers). How many accounts per platform are allowed? → A: One account per platform per user (simplifies MVP implementation, can extend post-MVP if needed)
+- Q: Mock failure simulation - The spec defines that mocks must exist for WhatsApp and Instagram but doesn't specify whether they should simulate realistic failure rates or always succeed. What should the mock behavior be? → A: Simulate realistic failure rates (WhatsApp 95% success, Instagram 90% success, random latency 100-400ms)
+- Q: Adapter ID format validation - FR-034 lists adapter interface methods including sendMessage() but doesn't specify whether external ID format validation (phone number for WhatsApp, username for Instagram) is the adapter's responsibility or the service layer's. Where should validation occur? → A: Adapter validates external_id format (WhatsApp checks E.164 phone, Instagram checks @username pattern)
+
 ### Session 2025-11-23
 
 - Q: The spec requires "sequence_number" for message ordering within conversations (FR-010), but doesn't specify who generates it. Should the system: → A: Server generates sequence_number atomically on message persistence (MongoDB findAndModify on conversation counter)
@@ -213,11 +221,12 @@ Users MUST be able to send messages that are routed to external platforms (Whats
 #### Multi-Platform Routing (P4 - Post-MVP)
 
 - **FR-033**: System MUST support plugin architecture for external platform adapters (WhatsApp, Instagram, Telegram)
-- **FR-034**: Adapters MUST implement standard interface: connect(), sendMessage(), sendFile(), webhookHandler()
-- **FR-035**: System MUST allow users to link external accounts (user_id mapped to whatsapp_number, instagram_username, etc.)
-- **FR-036**: System MUST route messages to selected platforms when user specifies channels: ["whatsapp", "instagram"] or "all"
+- **FR-034**: Adapters MUST implement standard interface: connect(), sendMessage(), sendFile(), webhookHandler(). Each adapter is responsible for validating external_id format according to platform requirements (e.g., WhatsApp validates E.164 phone format, Instagram validates @username pattern)
+- **FR-035**: System MUST allow users to link external accounts (user_id mapped to whatsapp_number, instagram_username, etc.). Each user can link ONE account per platform (enforced via unique index on (user_id, platform) in LinkedAccount collection)
+- **FR-036**: System MUST route messages to selected platforms when user specifies channels: ["whatsapp", "instagram"] or "all". On partial failures, system returns detailed per-platform results: {whatsapp: {success: true, platformMessageId: "wamid.123"}, instagram: {success: false, error: "connection_timeout"}}
 - **FR-037**: System MUST capture incoming messages from external platforms via webhooks and route to internal recipients
-- **FR-038**: Adapter failures MUST NOT block internal message delivery—external routing is best-effort with retry
+- **FR-038**: Adapter failures MUST NOT block internal message delivery—external routing is best-effort with retry (3 attempts with exponential backoff: 2s, 4s, 8s, then circuit breaker opens for 60s to allow adapter recovery)
+- **FR-039**: Mock adapters (WhatsApp, Instagram) MUST simulate realistic production behavior: WhatsAppMockAdapter achieves 95% success rate with 100-300ms latency, InstagramMockAdapter achieves 90% success rate with 150-400ms latency. Failures simulate common errors: connection_timeout, rate_limit_exceeded, invalid_recipient
 
 ### Non-Functional Requirements
 
@@ -271,7 +280,7 @@ Users MUST be able to send messages that are routed to external platforms (Whats
 - **MessageState**: Tracks state transitions for a message. Attributes: message_id, state, timestamp, recipient_id (for group messages, tracks per-recipient state in state_history array).
 - **FileMetadata**: Represents file attachments. Attributes: file_id (UUID), filename, size_bytes, mime_type, storage_url (MinIO reference), uploaded_at, conversation_id.
 - **Webhook**: Represents a registered callback endpoint. Attributes: webhook_id, user_id, callback_url, event_types (list: message_delivered, message_read), active (boolean).
-- **LinkedAccount**: Maps internal user to external platform accounts. Attributes: user_id, platform (WHATSAPP/INSTAGRAM/TELEGRAM), external_id (phone_number, username, etc.), linked_at.
+- **LinkedAccount**: Maps internal user to external platform accounts (one account per platform per user). Attributes: user_id, platform (WHATSAPP/INSTAGRAM/TELEGRAM), external_id (phone_number, username, etc.), linked_at. Unique index: (user_id, platform) ensures one account per platform; secondary unique index: (platform, external_id) prevents account duplication.
 
 ## Success Criteria *(mandatory)*
 
