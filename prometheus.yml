@@ -1,0 +1,92 @@
+# Configuração do Prometheus para scraping de métricas da Chat API
+# Este arquivo deve ser usado com o container Docker do Prometheus
+
+global:
+  scrape_interval: 15s # Intervalo de coleta de métricas (padrão: 15 segundos)
+  evaluation_interval: 15s # Intervalo de avaliação de regras de alerta
+  scrape_timeout: 10s # Timeout para scraping
+
+  # Labels externos aplicados a todas as métricas
+  external_labels:
+    cluster: 'chat-api-cluster'
+    environment: 'production'
+
+# Configuração de alerting (integração com Alertmanager - opcional)
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          # - 'alertmanager:9093' # Descomentar se usar Alertmanager
+
+# Regras de alerta (carregadas de arquivos)
+rule_files:
+  # - "alerts/chat-api-alerts.yml" # Descomentar quando criar regras
+
+# Configuração de scraping
+scrape_configs:
+  # Job 1: Scraping do próprio Prometheus (meta-monitoramento)
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Job 2: Chat API - Métricas da aplicação Spring Boot
+  - job_name: 'chat-api'
+    metrics_path: '/actuator/prometheus'
+    scrape_interval: 10s # Intervalo menor para capturar picos de latência
+    scrape_timeout: 5s
+    
+    static_configs:
+      - targets:
+          - 'chat-api:8081' # Nome do serviço Docker
+        labels:
+          instance: 'chat-api-1'
+          service: 'messaging-platform'
+          
+    # Relabel configs para adicionar informações adicionais
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: 'chat-api:8081'
+
+  # Job 3: Chat API - Múltiplas instâncias (escalabilidade horizontal)
+  # Descomentar quando testar múltiplas instâncias
+  # - job_name: 'chat-api-cluster'
+  #   metrics_path: '/actuator/prometheus'
+  #   scrape_interval: 10s
+  #   static_configs:
+  #     - targets:
+  #         - 'chat-api-1:8081'
+  #         - 'chat-api-2:8081'
+  #         - 'chat-api-3:8081'
+  #       labels:
+  #         service: 'messaging-platform'
+
+  # Job 4: Kafka Exporter (métricas do broker Kafka)
+  # Descomentar se adicionar kafka-exporter ao docker-compose
+  # - job_name: 'kafka'
+  #   static_configs:
+  #     - targets: ['kafka-exporter:9308']
+  #       labels:
+  #         service: 'kafka-broker'
+
+  # Job 5: MongoDB Exporter (métricas do banco de dados)
+  # Descomentar se adicionar mongodb-exporter ao docker-compose
+  # - job_name: 'mongodb'
+  #   static_configs:
+  #     - targets: ['mongodb-exporter:9216']
+  #       labels:
+  #         service: 'mongodb'
+
+  # Job 6: MinIO (métricas do object storage)
+  # Descomentar se habilitar métricas no MinIO
+  # - job_name: 'minio'
+  #   bearer_token: 'YOUR_MINIO_PROMETHEUS_TOKEN'
+  #   metrics_path: /minio/v2/metrics/cluster
+  #   scheme: http
+  #   static_configs:
+  #     - targets: ['minio:9000']
+  #       labels:
+  #         service: 'object-storage'

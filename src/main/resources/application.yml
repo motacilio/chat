@@ -21,13 +21,38 @@ management:
     web:
       exposure:
         include: health,info,metrics,prometheus
+      base-path: /actuator
   endpoint:
     health:
       show-details: always
+    prometheus:
+      enabled: true
+    metrics:
+      enabled: true
   metrics:
     export:
       prometheus:
         enabled: true
+        step: 10s
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+        message.latency.seconds: true
+        file.upload.latency.seconds: true
+        platform.delivery.latency.ms: true
+    tags:
+      application: ${spring.application.name}
+      environment: ${spring.profiles.active}
+
+# MinIO Object Storage (defaults)
+minio:
+  endpoint: http://localhost:9000
+  external-endpoint: http://localhost:9000
+  access-key: minioadmin
+  secret-key: minioadmin
+  bucket-name: chat-files
+  download-url-expiration-seconds: 3600
+  chunk-size-bytes: 5242880
 
 # Logging
 logging:
@@ -35,5 +60,6 @@ logging:
     com.chat: DEBUG
     org.springframework: INFO
     io.grpc: INFO
+    io.minio: DEBUG
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} - %logger{36} - %msg%n"

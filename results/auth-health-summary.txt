@@ -1,0 +1,13 @@
+K6 Load Test Summary
+====================
+
+Autenticação:
+- Logins bem-sucedidos: 392
+- Logins falhados: 0
+- Taxa de erro: 0.00%
+- Latência p95: 5.00ms
+
+Health Check:
+- Latência p95: 14.00ms
+
+Para testar mensagens gRPC, use: ghz --insecure --proto src/main/proto/chat_service.proto --call chat_api.v1.ChatService/SendMessage -d '{"conversation_id":"test","sender_id":"alice","message_text":"test"}' localhost:9090

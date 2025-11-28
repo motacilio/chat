@@ -1,6 +1,7 @@
 package com.chat.config;
 
 import com.chat.dto.MessageEventDto;
+import com.chat.dto.PlatformMessageEventDto;
 import com.chat.dto.StateUpdateEventDto;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringSerializer;
@@ -91,5 +92,17 @@ public class KafkaProducerConfig {
     @SuppressWarnings("unchecked")
     public KafkaTemplate<String, StateUpdateEventDto> stateUpdateEventKafkaTemplate() {
         return new KafkaTemplate<>((ProducerFactory<String, StateUpdateEventDto>) (ProducerFactory<?, ?>) producerFactory());
+    }
+    
+    /**
+     * KafkaTemplate specifically for PlatformMessageEventDto messages.
+     * Layer 2 Enhancement: Used for routing messages to platform-specific topics.
+     * 
+     * @return KafkaTemplate for platform message routing (whatsapp-messages, instagram-messages topics)
+     */
+    @Bean
+    @SuppressWarnings("unchecked")
+    public KafkaTemplate<String, PlatformMessageEventDto> platformKafkaTemplate() {
+        return new KafkaTemplate<>((ProducerFactory<String, PlatformMessageEventDto>) (ProducerFactory<?, ?>) producerFactory());
     }
 }

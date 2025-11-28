@@ -1,0 +1,106 @@
+# Docker Compose para Stack de Monitoramento
+# Adiciona Prometheus e Grafana à infraestrutura existente
+# 
+# Uso:
+#   docker-compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
+#
+# Acesso:
+#   - Prometheus: http://localhost:9090
+#   - Grafana: http://localhost:3000 (admin/admin)
+
+version: '3.8'
+
+services:
+  # Prometheus - Sistema de monitoramento e coleta de métricas
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d' # Retenção de 15 dias
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle' # Permite reload de config via API
+    networks:
+      - chat-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Grafana - Plataforma de visualização e dashboards
+  grafana:
+    image: grafana/grafana:10.2.2
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./docs/observabilidade:/etc/grafana/provisioning/dashboards:ro
+    environment:
+      # Configurações básicas
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      
+      # Configuração de data source Prometheus (provisionamento automático)
+      - GF_DATASOURCES_DEFAULT_URL=http://prometheus:9090
+      
+      # Habilitar acesso anônimo para visualização (útil para demos)
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+      
+      # Configurações de servidor
+      - GF_SERVER_ROOT_URL=http://localhost:3000
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+    networks:
+      - chat-network
+    depends_on:
+      - prometheus
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # Jaeger - Distributed Tracing (Fase 1.3 do plano - opcional)
+  # Descomentar quando implementar tracing
+  # jaeger:
+  #   image: jaegertracing/all-in-one:1.51
+  #   container_name: jaeger
+  #   restart: unless-stopped
+  #   ports:
+  #     - "5775:5775/udp" # zipkin.thrift over compact thrift protocol
+  #     - "6831:6831/udp" # jaeger.thrift over compact thrift protocol
+  #     - "6832:6832/udp" # jaeger.thrift over binary thrift protocol
+  #     - "5778:5778"     # serve configs
+  #     - "16686:16686"   # Jaeger UI
+  #     - "14268:14268"   # jaeger.thrift over HTTP
+  #     - "9411:9411"     # Zipkin compatible endpoint
+  #   environment:
+  #     - COLLECTOR_ZIPKIN_HOST_PORT=:9411
+  #     - COLLECTOR_OTLP_ENABLED=true
+  #   networks:
+  #     - chat-network
+
+volumes:
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+networks:
+  chat-network:
+    external: true
+    name: chat_chat-network

@@ -1,0 +1,7 @@
+{
+  "message_id": "{{.UUID}}",
+  "conversation_id": "{{.UUID}}",
+  "sender_id": "a1a1a1a1-1111-1111-1111-111111111111",
+  "recipient_id": "b2b2b2b2-2222-2222-2222-222222222222",
+  "message_text": "Load test message {{.RequestNumber}}"
+}

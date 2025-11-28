@@ -9,6 +9,7 @@ import org.springframework.data.mongodb.core.index.CompoundIndex;
 import org.springframework.data.mongodb.core.index.CompoundIndexes;
 import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
+import org.springframework.data.mongodb.core.mapping.Field;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -29,7 +30,7 @@ import java.util.List;
 @Builder
 @Document(collection = "conversations")
 @CompoundIndexes({
-    @CompoundIndex(name = "participants_last_message", def = "{'participants': 1, 'lastMessageAt': -1}")
+    @CompoundIndex(name = "participants_last_message", def = "{'participants': 1, 'last_message_at': -1}")
 })
 public class Conversation {
     
@@ -42,6 +43,7 @@ public class Conversation {
     /**
      * UUID - unique conversation identifier
      */
+    @Field("conversation_id")
     @Indexed(unique = true)
     private String conversationId;
     
@@ -61,17 +63,20 @@ public class Conversation {
     /**
      * Creation timestamp
      */
+    @Field("created_at")
     private Instant createdAt;
     
     /**
      * Last message timestamp (for sorting user's conversation list)
      */
+    @Field("last_message_at")
     private Instant lastMessageAt;
     
     /**
      * Preview of last message text (e.g., "Hello world...")
      * Updated by MessageDeliveryWorker after persisting message.
      */
+    @Field("last_message_preview")
     private String lastMessagePreview;
     
     /**

@@ -31,8 +31,19 @@ spring.security:
       jwt:
         issuer-uri: http://localhost:8080/realms/chat  # Placeholder for Keycloak
 
+# MinIO Configuration (File Upload - User Story 4 P2)
+minio:
+  endpoint: http://localhost:9000
+  external-endpoint: http://localhost:9000  # URL clients use to upload/download
+  access-key: minioadmin
+  secret-key: minioadmin
+  bucket-name: chat-files
+  download-url-expiration-seconds: 3600  # 1 hour
+  chunk-size-bytes: 5242880  # 5 MB chunks for resumable upload
+
 logging:
   level:
     com.chat: DEBUG
     org.apache.kafka: INFO
     org.springframework.data.mongodb: DEBUG
+    io.minio: DEBUG

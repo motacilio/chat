@@ -3,13 +3,23 @@ package com.chat.adapter;
 import com.chat.adapter.dto.ConnectionResult;
 import com.chat.adapter.dto.PlatformCredentials;
 import com.chat.adapter.dto.SendResult;
+import com.chat.dto.WebhookCallbackDto;
+import com.chat.model.MessageStatus;
 import com.chat.model.Platform;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestTemplate;
 
+import java.time.Instant;
 import java.util.Random;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.regex.Pattern;
 
 /**
@@ -52,7 +62,25 @@ public class WhatsAppMockAdapter implements PlatformAdapter {
     private static final Pattern E164_PATTERN = Pattern.compile("^\\+[1-9]\\d{6,14}$");
     
     private final Random random = new Random();
+    private final RestTemplate restTemplate;
     private boolean isConnected = false;
+    
+    @Value("${webhook.base-url:http://localhost:8081}")
+    private String webhookBaseUrl;
+    
+    public WhatsAppMockAdapter() {
+        this.restTemplate = new RestTemplate();
+    }
+    
+    /**
+     * Auto-connect the adapter on Spring Boot startup for testing/development.
+     * In production, connection would be triggered by admin API or configuration service.
+     */
+    @jakarta.annotation.PostConstruct
+    public void init() {
+        logger.info("[WHATSAPP MOCK] Auto-connecting adapter on startup");
+        connect(null);  // Mock doesn't need credentials
+    }
     
     /**
      * Simulates WhatsApp Business API connection establishment.
@@ -146,7 +174,32 @@ public class WhatsAppMockAdapter implements PlatformAdapter {
         logger.info("[WHATSAPP MOCK] Message sent successfully. platformMessageId={}, to={}, latency={}ms", 
                    platformMessageId, externalId, latencyMs);
         
+        // NOTE: Webhook callback is now triggered by Worker AFTER saveMapping() completes
+        // This eliminates the race condition where webhook arrived before mapping was queryable
+        
         return SendResult.success(platformMessageId);
+    }
+    
+    // NOTE: triggerDeliveredCallback() method removed - webhook triggering moved to WebhookTriggerService
+    // This is now called by Workers AFTER saveMapping() completes, eliminating the race condition
+    
+    /**
+     * Extract messageId from platformMessageId.
+     * 
+     * Note: This is a mock implementation. In real scenario, workers would store
+     * a mapping of messageId → platformMessageId when sending, and webhook would
+     * lookup messageId from platformMessageId.
+     * 
+     * For simplicity, we'll use the platformMessageId UUID portion as messageId.
+     * 
+     * @param platformMessageId Platform message ID (wamid.UUID)
+     * @return Message ID (UUID portion)
+     */
+    private String extractMessageIdFromPlatformId(String platformMessageId) {
+        // platformMessageId format: wamid.ABC123DEF456...
+        // For mock, we'll just use the full platformMessageId
+        // Real implementation would have a persistent mapping table
+        return platformMessageId;
     }
     
     /**

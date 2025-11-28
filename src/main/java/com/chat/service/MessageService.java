@@ -6,6 +6,9 @@ import com.chat.model.MessageStatus;
 import com.chat.repository.ConversationRepository;
 import com.chat.repository.MessageRepository;
 import com.chat.util.UuidValidator;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.mongodb.core.FindAndModifyOptions;
@@ -36,13 +39,39 @@ public class MessageService {
     private final ConversationRepository conversationRepository;
     private final MongoTemplate mongoTemplate;
     
+    // Métricas Prometheus
+    private final Counter messagesSentCounter;
+    private final Counter messagesValidatedCounter;
+    private final Counter idempotentRequestsCounter;
+    private final Timer messageValidationTimer;
+    
     public MessageService(
             MessageRepository messageRepository,
             ConversationRepository conversationRepository,
-            MongoTemplate mongoTemplate) {
+            MongoTemplate mongoTemplate,
+            MeterRegistry meterRegistry) {
         this.messageRepository = messageRepository;
         this.conversationRepository = conversationRepository;
         this.mongoTemplate = mongoTemplate;
+        
+        // Inicializar métricas
+        this.messagesSentCounter = Counter.builder("messages_sent_total")
+                .description("Total de mensagens enviadas")
+                .tag("type", "text")
+                .register(meterRegistry);
+        
+        this.messagesValidatedCounter = Counter.builder("messages_validated_total")
+                .description("Total de mensagens validadas com sucesso")
+                .register(meterRegistry);
+        
+        this.idempotentRequestsCounter = Counter.builder("idempotent_requests_total")
+                .description("Total de requisições idempotentes detectadas")
+                .register(meterRegistry);
+        
+        this.messageValidationTimer = Timer.builder("message_validation_latency_seconds")
+                .description("Latência da validação de mensagens")
+                .publishPercentiles(0.50, 0.95, 0.99)
+                .register(meterRegistry);
     }
     
     /**
@@ -96,60 +125,68 @@ public class MessageService {
      * @throws IllegalArgumentException if validation fails
      */
     public void validateMessage(String messageId, String conversationId, String senderId, String recipientId, String messageText) {
-        // Validate UUIDs (T035)
-        UuidValidator.validateOrThrow(messageId, "message_id");
-        UuidValidator.validateOrThrow(conversationId, "conversation_id");
-        UuidValidator.validateOrThrow(senderId, "sender_id");
-        UuidValidator.validateOrThrow(recipientId, "recipient_id");
-        
-        // Validate message size (T035 - edge case spec)
-        if (messageText == null || messageText.trim().isEmpty()) {
-            throw new IllegalArgumentException("message_text cannot be empty");
-        }
-        
-        int sizeBytes = messageText.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
-        if (sizeBytes > MAX_MESSAGE_SIZE_BYTES) {
-            throw new IllegalArgumentException(
-                    String.format("message_text exceeds maximum size of %d bytes (actual: %d bytes)", 
-                            MAX_MESSAGE_SIZE_BYTES, sizeBytes)
-            );
-        }
-        
-        // Check for duplicate message_id (idempotency per FR-006)
-        if (messageRepository.existsByMessageId(messageId)) {
-            logger.info("Duplicate message_id detected: {} - idempotent request, returning success", messageId);
-            // Not throwing exception - idempotent behavior returns success for duplicate
-            return;
-        }
-        
-        // Get or create conversation (auto-create for first message per FR-004a)
-        Conversation conversation = conversationRepository.findByConversationId(conversationId)
-                .orElseGet(() -> {
-                    logger.info("Conversation not found: {} - creating automatically with sender: {} and recipient: {}", 
-                            conversationId, senderId, recipientId);
-                    // Auto-create conversation with both sender_id and recipient_id as participants (FR-004a)
-                    Conversation newConv = Conversation.builder()
-                            .conversationId(conversationId)
-                            .type(com.chat.model.ConversationType.PRIVATE)
-                            .participants(java.util.Arrays.asList(senderId, recipientId))
-                            .createdAt(java.time.Instant.now())
-                            .lastMessageAt(java.time.Instant.now())
-                            .build();
-                    conversationRepository.save(newConv);
-                    logger.info("Auto-created conversation: {} with participants: [{}, {}]", 
-                            conversationId, senderId, recipientId);
-                    return newConv;
-                });
-        
-        // Validate sender is participant (authorization per FR-013)
-        if (!conversation.isParticipant(senderId)) {
-            throw new SecurityException(
-                    "User " + senderId + " is not a participant in conversation " + conversationId);
-        }
-        
-        // T036: Log message submission at INFO level per NFR-017
-        logger.info("Message validated - message_id: {}, conversation_id: {}, sender_id: {}, size_bytes: {}", 
-                messageId, conversationId, senderId, sizeBytes);
+        // Medir latência de validação
+        messageValidationTimer.record(() -> {
+            // Validate UUIDs (T035)
+            UuidValidator.validateOrThrow(messageId, "message_id");
+            UuidValidator.validateOrThrow(conversationId, "conversation_id");
+            UuidValidator.validateOrThrow(senderId, "sender_id");
+            UuidValidator.validateOrThrow(recipientId, "recipient_id");
+            
+            // Validate message size (T035 - edge case spec)
+            if (messageText == null || messageText.trim().isEmpty()) {
+                throw new IllegalArgumentException("message_text cannot be empty");
+            }
+            
+            int sizeBytes = messageText.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+            if (sizeBytes > MAX_MESSAGE_SIZE_BYTES) {
+                throw new IllegalArgumentException(
+                        String.format("message_text exceeds maximum size of %d bytes (actual: %d bytes)", 
+                                MAX_MESSAGE_SIZE_BYTES, sizeBytes)
+                );
+            }
+            
+            // Check for duplicate message_id (idempotency per FR-006)
+            if (messageRepository.existsByMessageId(messageId)) {
+                logger.info("Duplicate message_id detected: {} - idempotent request, returning success", messageId);
+                idempotentRequestsCounter.increment(); // Métrica de requisições idempotentes
+                // Not throwing exception - idempotent behavior returns success for duplicate
+                return;
+            }
+            
+            // Get or create conversation (auto-create for first message per FR-004a)
+            Conversation conversation = conversationRepository.findByConversationId(conversationId)
+                    .orElseGet(() -> {
+                        logger.info("Conversation not found: {} - creating automatically with sender: {} and recipient: {}", 
+                                conversationId, senderId, recipientId);
+                        // Auto-create conversation with both sender_id and recipient_id as participants (FR-004a)
+                        Conversation newConv = Conversation.builder()
+                                .conversationId(conversationId)
+                                .type(com.chat.model.ConversationType.PRIVATE)
+                                .participants(java.util.Arrays.asList(senderId, recipientId))
+                                .createdAt(java.time.Instant.now())
+                                .lastMessageAt(java.time.Instant.now())
+                                .build();
+                        conversationRepository.save(newConv);
+                        logger.info("Auto-created conversation: {} with participants: [{}, {}]", 
+                                conversationId, senderId, recipientId);
+                        return newConv;
+                    });
+            
+            // Validate sender is participant (authorization per FR-013)
+            if (!conversation.isParticipant(senderId)) {
+                throw new SecurityException(
+                        "User " + senderId + " is not a participant in conversation " + conversationId);
+            }
+            
+            // Incrementar contadores de métricas
+            messagesSentCounter.increment();
+            messagesValidatedCounter.increment();
+            
+            // T036: Log message submission at INFO level per NFR-017
+            logger.info("Message validated - message_id: {}, conversation_id: {}, sender_id: {}, size_bytes: {}", 
+                    messageId, conversationId, senderId, sizeBytes);
+        });
     }
     
     /**

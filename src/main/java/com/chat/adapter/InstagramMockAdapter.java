@@ -3,11 +3,20 @@ package com.chat.adapter;
 import com.chat.adapter.dto.ConnectionResult;
 import com.chat.adapter.dto.PlatformCredentials;
 import com.chat.adapter.dto.SendResult;
+import com.chat.dto.WebhookCallbackDto;
+import com.chat.model.MessageStatus;
 import com.chat.model.Platform;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestTemplate;
 
+import java.time.Instant;
 import java.util.Random;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -53,7 +62,25 @@ public class InstagramMockAdapter implements PlatformAdapter {
     private static final Pattern USERNAME_PATTERN = Pattern.compile("^@[a-zA-Z0-9._]{1,30}$");
     
     private final Random random = new Random();
+    private final RestTemplate restTemplate;
     private boolean isConnected = false;
+    
+    @Value("${webhook.base-url:http://localhost:8081}")
+    private String webhookBaseUrl;
+    
+    public InstagramMockAdapter() {
+        this.restTemplate = new RestTemplate();
+    }
+    
+    /**
+     * Auto-connect the adapter on Spring Boot startup for testing/development.
+     * In production, connection would be triggered by admin API or configuration service.
+     */
+    @jakarta.annotation.PostConstruct
+    public void init() {
+        logger.info("[INSTAGRAM MOCK] Auto-connecting adapter on startup");
+        connect(null);  // Mock doesn't need credentials
+    }
     
     /**
      * Simulates Instagram Graph API connection establishment.
@@ -143,11 +170,18 @@ public class InstagramMockAdapter implements PlatformAdapter {
         
         // 90% success case
         String platformMessageId = generateMockInstagramMessageId();
-        logger.info("[INSTAGRAM MOCK] Message sent successfully. platformMessageId={}, to={}, latency={}ms", 
+        logger.info("[INSTAGRAM MOCK] Message sent successfully. platformMessageId={}, to={}, latency={}ms",
                    platformMessageId, externalId, latencyMs);
+        
+        // NOTE: Webhook callback is now triggered by Worker AFTER saveMapping() completes
+        // This eliminates the race condition where webhook arrived before mapping was queryable
         
         return SendResult.success(platformMessageId);
     }
+    
+    // NOTE: triggerDeliveredCallback() and extractMessageIdFromPlatformId() methods removed
+    // Webhook triggering moved to WebhookTriggerService, called by Workers AFTER saveMapping() completes
+    // This eliminates the race condition where webhook arrived before mapping was queryable
     
     /**
      * Simulates sending file via Instagram Graph API.

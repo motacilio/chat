@@ -36,9 +36,15 @@ build/
 # Logs
 logs/
 *.log
+spring-boot*.log
+compile-output.txt
+
+# Test artifacts
+test-upload-*.txt
+test-upload-*.log
+file-upload-test-*.log
+grpc-test-*.log
+test-results-*.log
 
 # Test coverage
 coverage/
-
-# Spring Boot
-spring-boot-*.log

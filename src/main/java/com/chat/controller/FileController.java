@@ -182,7 +182,9 @@ public class FileController {
                 .messageId(fileMessage.getMessageId())
                 .conversationId(fileMessage.getConversationId())
                 .senderId(fileMessage.getSenderId())
-                .messageText(null)  // File messages have null messageText (XOR with fileMetadata)
+                .recipientIds(request.getRecipientIds())  // Include recipients for platform routing
+                .messageText(null)  // File messages have null messageText (XOR with fileId)
+                .fileId(fileMetadata.getFileId())  // Include fileId for file messages
                 .sequenceNumber(fileMessage.getSequenceNumber())
                 .timestamp(Instant.now().toString())
                 .build();

@@ -7,6 +7,19 @@
 
 ## Clarifications
 
+### Session 2025-11-26
+
+- Q: Qual deve ser o timeout máximo para operações de **persistência no MongoDB** (ex: salvar mensagem, atualizar conversation)? → A: 5 segundos com retry automático (1 tentativa)
+- Q: Qual deve ser o **formato padrão de timestamp** nos logs estruturados JSON? → A: ISO-8601 com timezone UTC (ex: "2025-11-26T14:35:22.123Z")
+- Q: Quanto tempo o servidor deve **manter o estado de upload parcial** antes de considerar o upload abandonado e limpar recursos? → A: 24 horas
+- Q: Qual deve ser o **limite máximo de participantes** em conversas de grupo no MVP? → A: 100 participantes
+- Q: Quando o circuit breaker está **aberto** (60s timeout após falhas), qual deve ser o comportamento ao receber novas requisições para aquele adapter? → A: Rejeitar imediatamente com erro "Adapter unavailable - circuit breaker open"
+- Q: Como o sistema deve tratar conversas duplicadas quando Alice envia mensagem para Bob (criando conversation_id: conv-123) e depois Bob envia mensagem para Alice (tentando criar conversation_id: conv-456)? → A: Prevenir duplicatas normalizando participants array (ordenar user_ids alfabeticamente) e criar índice único no MongoDB em (participants_sorted, type)
+- Q: O que deve acontecer quando um cliente envia mensagem **sem** conversation_id (para auto-criação) mas **também sem** recipient_id? → A: Rejeitar com erro "recipient_id is required when conversation_id is not provided"
+- Q: Mensagens em grupos devem ter campo group_id separado do conversation_id, ou conversation_id é suficiente para identificar o grupo? → A: Usar apenas conversation_id (Conversation entity tem campo type: PRIVATE/GROUP que diferencia)
+- Q: O que deve acontecer quando um admin tenta adicionar o 101º membro a um grupo que já tem 100 participantes (limite máximo FR-015a)? → A: Rejeitar com erro "Group member limit reached (100/100). Remove members before adding new ones"
+- Q: Como deve ser persistido o delivery state per-recipient em mensagens de grupo (100 membros × múltiplas transições): array embedded no documento da mensagem ou collection separada? → A: Array embedded no Message document (state_history: [{recipient_id, state, timestamp}]) - simples e eficiente para limite de 100 membros no MVP
+
 ### Session 2025-11-24
 
 - Q: Adapter failure handling strategy for multi-platform routing - FR-038 states "best-effort with retry" but doesn't define retry parameters. What should be the retry policy? → A: 3 retry attempts with exponential backoff (2s, 4s, 8s) then circuit breaker opens for 60s
@@ -175,6 +188,7 @@ Users MUST be able to send messages that are routed to external platforms (Whats
 
 - **FR-004**: System MUST accept text messages via gRPC API with fields: sender_id, recipient_id (required for auto-created conversations), conversation_id, message_text, message_id (UUID)
 - **FR-004a**: When conversation_id does not exist, system MUST auto-create PRIVATE conversation with both sender_id and recipient_id as initial participants
+- **FR-004b**: System MUST validate that recipient_id is provided when conversation_id is not provided (auto-creation scenario). If both are missing, system MUST reject request with error "recipient_id is required when conversation_id is not provided" (HTTP 400 / gRPC INVALID_ARGUMENT).
 - **FR-005**: System MUST persist message metadata (message_id, conversation_id, sender_id, timestamp, state, message_text) in MongoDB
 - **FR-006**: System MUST guarantee message idempotency using unique message_id—duplicate submissions MUST be rejected
 - **FR-007**: System MUST support message states: SENT (accepted by server), DELIVERED (confirmed by recipient client via gRPC ACK), READ (opened by recipient)
@@ -186,13 +200,15 @@ Users MUST be able to send messages that are routed to external platforms (Whats
 #### Conversation Management (P1 - MVP)
 
 - **FR-012**: System MUST allow users to create 1:1 private conversations with unique conversation_id
+- **FR-012a**: System MUST prevent duplicate private conversations between the same participants by normalizing the participants array (sort user_ids alphabetically) before persistence and enforcing a unique compound index on (participants_sorted, type) in MongoDB. When auto-creating a conversation (FR-004a), system MUST first check for existing conversation using normalized participants to reuse existing conversation_id.
 - **FR-013**: System MUST restrict conversation access to participants only (authorization check on all read/write operations)
 - **FR-014**: System MUST enforce rate limiting (100 messages/minute per user) to prevent abuse
 - **FR-014a**: System MUST queue up to 200 messages per user when burst traffic exceeds rate limit, processing them at 100 messages/minute pace. Requests exceeding 200 queued messages return error with backpressure signal.
 - **FR-015**: System MUST provide API to list user's conversations with most recent message preview and timestamp
-- **FR-015**: System MUST allow users to create group conversations with multiple participants (n members)
+- **FR-015a**: System MUST allow users to create group conversations with multiple participants (maximum 100 members in MVP to prevent hot partitions and ensure manageable fan-out delivery)
 - **FR-016**: System MUST assign creator of group conversation as initial admin with permissions to add/remove members and promote other admins
 - **FR-017**: System MUST enforce that only admins can add/remove members from group conversations
+- **FR-017a**: System MUST validate member count before adding new members to groups. When group already has 100 members (maximum limit), AddMember operation MUST reject with error "Group member limit reached (100/100). Remove members before adding new ones" (HTTP 400 / gRPC FAILED_PRECONDITION). System MUST include current member count in error response for client visibility.
 - **FR-018**: System MUST enforce that only admins can promote other members to admin role or revoke admin privileges
 - **FR-019**: Group messages MUST be fan-out delivered to all participants with per-recipient delivery tracking
 
@@ -200,6 +216,7 @@ Users MUST be able to send messages that are routed to external platforms (Whats
 
 - **FR-020**: System MUST accept file uploads up to 2 GB using chunked upload protocol
 - **FR-021**: System MUST implement resumable upload—clients can resume from last successful chunk after network interruption
+- **FR-021a**: System MUST retain upload state (file_id, uploaded chunks) for 24 hours after last activity. After expiration, upload is considered abandoned and resources are cleaned up. Client attempting to resume expired upload receives "Upload expired" error.
 - **FR-022**: System MUST store files in Object Storage (MinIO) and persist metadata (filename, size, storage_url, conversation_id) in MongoDB
 - **FR-023**: System MUST generate pre-signed download URLs valid for 1 hour for authorized users
 - **FR-024**: System MUST reject files exceeding 2 GB with clear error message
@@ -226,6 +243,7 @@ Users MUST be able to send messages that are routed to external platforms (Whats
 - **FR-036**: System MUST route messages to selected platforms when user specifies channels: ["whatsapp", "instagram"] or "all". On partial failures, system returns detailed per-platform results: {whatsapp: {success: true, platformMessageId: "wamid.123"}, instagram: {success: false, error: "connection_timeout"}}
 - **FR-037**: System MUST capture incoming messages from external platforms via webhooks and route to internal recipients
 - **FR-038**: Adapter failures MUST NOT block internal message delivery—external routing is best-effort with retry (3 attempts with exponential backoff: 2s, 4s, 8s, then circuit breaker opens for 60s to allow adapter recovery)
+- **FR-038a**: When circuit breaker is OPEN (during 60s cooldown period), new requests to that adapter MUST be rejected immediately with error "Adapter unavailable - circuit breaker open" without attempting delivery. Circuit breaker automatically transitions to HALF-OPEN after 60s, allowing one test request to verify adapter recovery.
 - **FR-039**: Mock adapters (WhatsApp, Instagram) MUST simulate realistic production behavior: WhatsAppMockAdapter achieves 95% success rate with 100-300ms latency, InstagramMockAdapter achieves 90% success rate with 150-400ms latency. Failures simulate common errors: connection_timeout, rate_limit_exceeded, invalid_recipient
 
 ### Non-Functional Requirements
@@ -250,14 +268,17 @@ Users MUST be able to send messages that are routed to external platforms (Whats
 #### Performance (P1 - MVP)
 
 - **NFR-012**: Text message submission MUST complete within <100ms p95 latency
+- **NFR-012a**: MongoDB write operations (message persistence, conversation updates) MUST complete within 5 seconds with 1 automatic retry attempt on transient failures
 - **NFR-013**: File upload throughput MUST support at least 10 MB/s per connection
 - **NFR-014**: Conversation history queries MUST return within <200ms for pages of 50 messages
+- **NFR-014a**: MongoDB read operations (queries) MUST timeout after 3 seconds to prevent blocking UX
 - **NFR-015**: Message delivery to online users MUST occur within 2 seconds of submission
 - **NFR-016**: System MUST handle traffic spikes of 10x normal load without degradation
 
 #### Observability (P2)
 
 - **NFR-017**: System MUST implement structured logging (JSON format) with centralized aggregation via Prometheus. Logs MUST include message_id, conversation_id, sender_id, timestamp, sequence_number for observability but MUST exclude message_text and file content to preserve privacy.
+- **NFR-017a**: Structured logs MUST use ISO-8601 format with UTC timezone for all timestamp fields (example: "2025-11-26T14:35:22.123Z"). Required log fields: service_name, log_level, timestamp, trace_id, message_id, conversation_id, sender_id, event_type.
 - **NFR-018**: System MUST expose metrics via Prometheus exporters: messages/second, latency percentiles, error rates, Kafka consumer lag, MongoDB connection pool usage
 - **NFR-019**: System MUST implement distributed tracing using Jaeger for request flows across services
 - **NFR-020**: System MUST provide Grafana dashboards for real-time monitoring of key metrics
@@ -274,7 +295,7 @@ Users MUST be able to send messages that are routed to external platforms (Whats
 
 - **User**: Represents a platform user with unique user_id (UUID, primary identifier). Attributes: user_id (UUID), username (unique, human-readable), email (unique), created_at, linked_accounts (for multi-platform mapping). Authentication via OAuth 2.0 JWT tokens containing user_id claim.
 - **Conversation**: Represents a messaging context (1:1 or group). Attributes: conversation_id (UUID), type (PRIVATE/GROUP), participants (list of user_id), admin_user_ids (list of user_id with admin privileges, only for GROUP type), creator_id (user_id of conversation creator), created_at, last_message_at, status (ACTIVE/DELETED - when DELETED, conversation is hidden from ListConversations and new messages are rejected).
-- **Message**: Abstract base entity with common attributes: message_id (UUID, unique), conversation_id, sender_id, timestamp, state (SENT/DELIVERED/READ), sequence_number (per conversation), state_history (array of {recipient_id, state, timestamp} for per-recipient tracking in group messages). Two concrete subtypes:
+- **Message**: Abstract base entity with common attributes: message_id (UUID, unique), conversation_id (references Conversation entity - no separate group_id field needed since Conversation.type differentiates PRIVATE vs GROUP), sender_id, timestamp, state (SENT/DELIVERED/READ), sequence_number (per conversation), state_history (array embedded in Message document containing {recipient_id, state, timestamp} for per-recipient tracking in group messages - optimized for MVP limit of 100 members per group; array size bounded at ~300 entries max: 100 recipients × 3 states). Two concrete subtypes:
   - **TextMessage**: Contains message_text field (string, max 100 KB). Used for text-only messages.
   - **FileMessage**: Contains file_metadata reference. Used for file-only messages (no text caption).
 - **MessageState**: Tracks state transitions for a message. Attributes: message_id, state, timestamp, recipient_id (for group messages, tracks per-recipient state in state_history array).

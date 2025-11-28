@@ -47,9 +47,20 @@ public class MessageEventDto implements Serializable {
     private String senderId;
     
     /**
-     * Message text content
+     * Recipient user_id list for platform routing
+     */
+    private java.util.List<String> recipientIds;
+    
+    /**
+     * Message text content (XOR with fileId - one must be null)
      */
     private String messageText;
+    
+    /**
+     * File UUID for file messages (User Story 4)
+     * XOR constraint: Either messageText OR fileId must be non-null
+     */
+    private String fileId;
     
     /**
      * Per-conversation sequence number (for ordering per FR-007)
