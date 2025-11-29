@@ -1,6 +1,5 @@
 package com.chat.worker;
 
-import com.chat.dto.StateUpdateEventDto;
 import com.chat.grpc.v1.MessageEvent;
 import com.chat.grpc.v1.StatusUpdateEvent;
 import com.chat.model.Message;
@@ -79,12 +78,12 @@ public class MessageStateUpdateWorker {
     @KafkaListener(
             topics = "state-update-events",
             groupId = "message-state-update-workers",
-            containerFactory = "kafkaListenerContainerFactory"
+            containerFactory = "stateUpdateEventKafkaListenerContainerFactory"
     )
-    public void handleStateUpdateEvent(StateUpdateEventDto event, Acknowledgment acknowledgment) {
+    public void handleStateUpdateEvent(com.chat.kafka.v1.StateUpdateEvent event, Acknowledgment acknowledgment) {
         try {
             String messageId = event.getMessageId();
-            MessageStatus newStatus = event.getNewStatus();
+            MessageStatus newStatus = mapFromProtobufStatus(event.getNewStatus());
             
             // Retrieve message from MongoDB
             Optional<Message> messageOpt = messageRepository.findByMessageId(messageId);
@@ -129,8 +128,9 @@ public class MessageStateUpdateWorker {
             messageRepository.save(message);
             
             // T043: Log state transition per NFR-017
+            String conversationId = event.getConversationId().isEmpty() ? "unknown" : event.getConversationId();
             logger.info("Message state updated - message_id: {}, conversation_id: {}, old_status: {}, new_status: {}, user_id: {}",
-                    messageId, event.getConversationId(), oldStatus, newStatus, event.getUserId());
+                    messageId, conversationId, oldStatus, newStatus, event.getUserId());
             
             // T092: Notify StreamingService to push status update to sender (if online)
             MessageEvent statusEvent = buildStatusUpdateMessageEvent(
@@ -213,6 +213,18 @@ public class MessageStateUpdateWorker {
             case SENT -> com.chat.grpc.v1.MessageStatus.SENT;
             case DELIVERED -> com.chat.grpc.v1.MessageStatus.DELIVERED;
             case READ -> com.chat.grpc.v1.MessageStatus.READ;
+        };
+    }
+    
+    /**
+     * Map Protobuf StateUpdateEvent.MessageStatus to domain MessageStatus.
+     */
+    private MessageStatus mapFromProtobufStatus(com.chat.kafka.v1.StateUpdateEvent.MessageStatus status) {
+        return switch (status) {
+            case SENT -> MessageStatus.SENT;
+            case DELIVERED -> MessageStatus.DELIVERED;
+            case READ -> MessageStatus.READ;
+            default -> throw new IllegalArgumentException("Unknown Protobuf MessageStatus: " + status);
         };
     }
 }

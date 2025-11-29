@@ -1,7 +1,5 @@
 package com.chat.worker;
 
-import com.chat.dto.MessageEventDto;
-import com.chat.grpc.v1.MessageEvent;
 import com.chat.grpc.v1.NewMessageEvent;
 import com.chat.grpc.v1.UserInfo;
 import com.chat.model.Message;
@@ -12,6 +10,7 @@ import com.chat.service.ConversationService;
 import com.chat.service.PlatformRoutingService;
 import com.chat.service.StreamingService;
 import com.google.protobuf.Timestamp;
+import com.google.protobuf.util.Timestamps;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -114,9 +113,9 @@ public class MessageDeliveryWorker {
     @KafkaListener(
             topics = "message-events",
             groupId = "message-delivery-workers",
-            containerFactory = "kafkaListenerContainerFactory"
+            containerFactory = "messageEventKafkaListenerContainerFactory"
     )
-    public void handleMessageEvent(MessageEventDto event, Acknowledgment acknowledgment) {
+    public void handleMessageEvent(com.chat.kafka.v1.MessageEvent event, Acknowledgment acknowledgment) {
         // Medir latência total de processamento Kafka
         kafkaProcessingTimer.record(() -> {
             try {
@@ -132,13 +131,25 @@ public class MessageDeliveryWorker {
                 if (!messageExists) {
                     // Medir latência de persistência MongoDB
                     mongodbPersistTimer.record(() -> {
-                        // Create Message entity
-                        Instant timestamp = Instant.parse(event.getTimestamp());
+                        // Create Message entity from Protobuf
+                        Instant timestamp = Instant.ofEpochSecond(
+                            event.getTimestamp().getSeconds(),
+                            event.getTimestamp().getNanos()
+                        );
                         Message message = new Message();
                         message.setMessageId(messageId);
                         message.setConversationId(conversationId);
                         message.setSenderId(event.getSenderId());
-                        message.setMessageText(event.getMessageText());
+                        
+                        // Handle oneof content field (messageText or fileId)
+                        if (event.hasMessageText()) {
+                            message.setMessageText(event.getMessageText());
+                        } else if (event.hasFileId()) {
+                            // File messages will be linked when FileController creates full FileMetadata
+                            // For now, we skip setting fileId since Message entity uses FileMetadata, not String fileId
+                            // The file message will be completed when FileController sends MessageEvent with fileId
+                        }
+                        
                         message.setSequenceNumber(event.getSequenceNumber());
                         message.setTimestamp(timestamp);
                         
@@ -158,16 +169,19 @@ public class MessageDeliveryWorker {
                                 messageId, conversationId, event.getSequenceNumber());
                         
                         // Update Conversation.lastMessage denormalized field (T046)
-                        conversationService.updateLastMessage(conversationId, event.getMessageText(), timestamp);
+                        String messagePreview = event.hasMessageText() 
+                            ? event.getMessageText() 
+                            : "[File]";
+                        conversationService.updateLastMessage(conversationId, messagePreview, timestamp);
                     });
                     
                     // T091: Notify StreamingService for real-time delivery to online users
                     Message message = messageRepository.findByMessageId(messageId)
                             .orElseThrow(() -> new IllegalStateException("Message not found after save: " + messageId));
-                    MessageEvent messageEvent = buildMessageEvent(message);
+                    com.chat.grpc.v1.MessageEvent grpcMessageEvent = buildMessageEvent(message);
                     
                     // Check if any participants are online and push via stream
-                    boolean deliveredViaStream = streamingService.notifyUserMessage(event.getSenderId(), messageEvent);
+                    boolean deliveredViaStream = streamingService.notifyUserMessage(event.getSenderId(), grpcMessageEvent);
                     
                     if (deliveredViaStream) {
                         logger.debug("Message delivered to online user via stream - message_id: {}", messageId);
@@ -178,8 +192,8 @@ public class MessageDeliveryWorker {
             
                 
                 // Route to external platforms (WhatsApp, Instagram) for each recipient
-                if (event.getRecipientIds() != null && !event.getRecipientIds().isEmpty()) {
-                    for (String recipientId : event.getRecipientIds()) {
+                if (event.getRecipientIdsCount() > 0) {
+                    for (String recipientId : event.getRecipientIdsList()) {
                         platformRoutingService.routeMessageToPlatforms(event, recipientId);
                         logger.debug("Message routed to platforms - message_id: {}, recipient_id: {}", messageId, recipientId);
                     }
@@ -205,12 +219,12 @@ public class MessageDeliveryWorker {
     }
     
     /**
-     * Build MessageEvent protobuf for streaming to online users.
+     * Build gRPC MessageEvent protobuf for streaming to online users.
      * 
      * @param message Persisted Message entity
-     * @return MessageEvent protobuf for gRPC streaming
+     * @return gRPC MessageEvent protobuf for streaming
      */
-    private MessageEvent buildMessageEvent(Message message) {
+    private com.chat.grpc.v1.MessageEvent buildMessageEvent(Message message) {
         // Build NewMessageEvent
         NewMessageEvent newMessageEvent = NewMessageEvent.newBuilder()
                 .setMessageId(message.getMessageId())
@@ -227,8 +241,8 @@ public class MessageDeliveryWorker {
                 .setSequenceNumber(message.getSequenceNumber())
                 .build();
         
-        // Wrap in MessageEvent (oneof event)
-        return MessageEvent.newBuilder()
+        // Wrap in gRPC MessageEvent (oneof event)
+        return com.chat.grpc.v1.MessageEvent.newBuilder()
                 .setNewMessage(newMessageEvent)
                 .build();
     }

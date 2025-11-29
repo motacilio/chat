@@ -22,7 +22,37 @@ This document resolves all technical unknowns identified in the planning phase, 
 **Alternatives Considered**:
 1. **REST with JSON**: Simpler, more familiar, easier debugging with curl. **REJECTED** because text serialization adds 30-40% latency overhead and lacks native streaming for real-time updates.
 2. **GraphQL**: Flexible client-driven queries, reduces over-fetching. **REJECTED** because overkill for simple CRUD + pub/sub messaging patterns; adds query complexity without corresponding benefit.
-3. **WebSocket**: Native bidirectional streaming. **REJECTED** because lacks strongly-typed schema enforcement and standardized code generation (Protobuf superior for contract management).
+3. **WebSocket**: Native bidirectional streaming. **REJECTED** for mobile clients because:
+   - Lacks strongly-typed schema enforcement (JSON without compile-time validation)
+   - No standardized code generation (manual DTO classes prone to drift)
+   - Higher payload overhead (JSON vs Protobuf binary)
+   - **Note**: WebSocket would be appropriate for web browsers, but gRPC-Web exists for that use case
+
+**Why gRPC Streaming Works for Mobile Devices in Any Network**:
+- **Outbound connection**: Mobile device initiates connection to server (no firewall/NAT issues)
+- **Bidirectional over single TCP**: Server pushes messages via established stream (no inbound firewall rules needed)
+- **Works on cellular networks**: 4G/5G/WiFi all support outbound HTTPS connections (gRPC uses HTTP/2)
+- **Automatic reconnection**: gRPC client SDKs handle network changes (WiFi ↔ cellular handoff)
+- **Battery efficient**: HTTP/2 multiplexing reduces connections, Protobuf reduces payload size
+
+**Mobile Group Message Notification Flow**:
+```
+User A (Mobile) → SendMessage RPC (conversation_id = "group-123")
+                       ↓
+                  ChatServiceImpl publishes to Kafka
+                       ↓
+                  MessageDeliveryWorker persists to MongoDB
+                       ↓
+                  For each participant in "group-123":
+                       ↓
+        ┌──────────────┼──────────────┬──────────────┐
+        ↓              ↓              ↓              ↓
+    User B         User C         User D         User E
+    (online)       (online)       (offline)      (online)
+    gRPC stream    gRPC stream    (skip)         gRPC stream
+    ↓              ↓                              ↓
+    Push instantly Push instantly                Push instantly
+```
 
 **Implementation Notes**:
 - Use `grpc-spring-boot-starter` for Spring Boot integration
@@ -37,7 +67,7 @@ This document resolves all technical unknowns identified in the planning phase, 
 
 ## Decision 2: Apache Kafka for Async Message Processing
 
-**Chosen**: **Apache Kafka with Topic Partitions + Consumer Groups**
+**Chosen**: **Apache Kafka with Topic Partitions + Consumer Groups** (for ALL async communication, including platform callbacks)
 
 **Rationale**:
 - **At-least-once delivery** via manual offset commits (consumer commits offset only after successful MongoDB persistence)
@@ -46,15 +76,38 @@ This document resolves all technical unknowns identified in the planning phase, 
 - **Log-based persistence** prevents message loss during broker restarts and enables message replay
 - **High throughput** supports millions of messages/second with horizontal scaling via partitions
 - **Industry standard** for event streaming platforms (LinkedIn, Uber, Netflix use Kafka at scale)
+- **Protocol Buffers serialization** for Kafka (60% payload reduction, 2-3x faster than JSON)
 
-**Kafka Topology**:
+**Kafka Topology (Bidirectional)**:
 ```
-Producer (API) → Topic: "message-events" (10 partitions, partition key = conversation_id)
-                    ↓
-                Consumer Group: "message-consumer-group" (multiple instances)
-                    ↓
-                Workers (MessageDeliveryWorker) → MongoDB
+┌─────────────────────────────────────────────────────────────────────────┐
+│ Outbound: Internal → External Platforms                                 │
+└─────────────────────────────────────────────────────────────────────────┘
+Producer (API) → message-events → MessageDeliveryWorker → MongoDB
+                                         ↓
+                  Platform-specific topics (whatsapp-messages, instagram-messages)
+                                         ↓
+                  WhatsAppWorker, InstagramWorker (consume, call Mock API)
+                                         ↓
+                  Simulate platform delivery (logs, no real HTTP call)
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ Inbound: External Platforms → Internal (Kafka, NOT HTTP Webhooks)       │
+└─────────────────────────────────────────────────────────────────────────┘
+                  WhatsAppWorker (producer) → platform-callback-events topic
+                                         ↓
+                  PlatformCallbackWorker (consumer) → state-update-events
+                                         ↓
+                  MessageStateUpdateWorker → MongoDB (DELIVERED status)
 ```
+
+**Why Kafka for Callbacks (NOT HTTP Webhooks)**:
+- **HTTP webhooks fail in production**: Requires public IP/DNS, firewall rules, NAT traversal
+- **Localhost-only**: `http://localhost:8081` only works on single machine (breaks in distributed systems)
+- **Network complexity**: Firewalls block inbound HTTP, corporate proxies interfere
+- **Kafka is bidirectional**: Same infrastructure for outbound (messages) and inbound (callbacks)
+- **Reliability**: Kafka retries, ordering, durability > HTTP retry logic
+- **Scalability**: No need for load balancers, DNS, SSL certificates for webhooks
 
 **Partition Strategy**:
 - **Partition Key**: conversation_id (guarantees all messages in a conversation go to same partition)

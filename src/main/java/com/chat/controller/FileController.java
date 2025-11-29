@@ -5,12 +5,13 @@ import com.chat.dto.CompleteUploadResponse;
 import com.chat.dto.DownloadFileResponse;
 import com.chat.dto.InitiateUploadRequest;
 import com.chat.dto.InitiateUploadResponse;
-import com.chat.dto.MessageEventDto;
+import com.chat.kafka.v1.MessageEvent;
 import com.chat.model.FileMetadata;
 import com.chat.model.Message;
 import com.chat.model.FileMetadata.FileUploadStatus;
 import com.chat.service.FileStorageService;
 import com.chat.service.JwtService;
+import com.google.protobuf.util.Timestamps;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 // quem ler isso é gay
@@ -56,7 +57,7 @@ public class FileController {
     private com.chat.service.MessageService messageService;
     
     @Autowired
-    private KafkaTemplate<String, MessageEventDto> messageEventKafkaTemplate;
+    private KafkaTemplate<String, com.chat.kafka.v1.MessageEvent> messageEventKafkaTemplate;
 
     @Value("${minio.download-url-expiration-seconds:3600}")
     private int downloadUrlExpirationSeconds;
@@ -177,16 +178,15 @@ public class FileController {
                 fileMetadata
         );
 
-        // Step 6: Publish to Kafka for async delivery (convert to MessageEventDto like text messages)
-        MessageEventDto messageEvent = MessageEventDto.builder()
-                .messageId(fileMessage.getMessageId())
-                .conversationId(fileMessage.getConversationId())
-                .senderId(fileMessage.getSenderId())
-                .recipientIds(request.getRecipientIds())  // Include recipients for platform routing
-                .messageText(null)  // File messages have null messageText (XOR with fileId)
-                .fileId(fileMetadata.getFileId())  // Include fileId for file messages
-                .sequenceNumber(fileMessage.getSequenceNumber())
-                .timestamp(Instant.now().toString())
+        // Step 6: Publish to Kafka for async delivery (convert to MessageEvent Protobuf like text messages)
+        MessageEvent messageEvent = MessageEvent.newBuilder()
+                .setMessageId(fileMessage.getMessageId())
+                .setConversationId(fileMessage.getConversationId())
+                .setSenderId(fileMessage.getSenderId())
+                .addAllRecipientIds(request.getRecipientIds())  // Include recipients for platform routing
+                .setFileId(fileMetadata.getFileId())  // File messages use fileId (oneof content)
+                .setSequenceNumber(fileMessage.getSequenceNumber())
+                .setTimestamp(Timestamps.fromMillis(Instant.now().toEpochMilli()))
                 .build();
         
         messageEventKafkaTemplate.send("message-events", fileMetadata.getConversationId(), messageEvent);

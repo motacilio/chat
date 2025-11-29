@@ -1,15 +1,17 @@
 package com.chat.service;
 
-import com.chat.dto.MessageEventDto;
-import com.chat.dto.PlatformMessageEventDto;
+import com.chat.kafka.v1.MessageEvent;
+import com.chat.kafka.v1.PlatformMessageEvent;
 import com.chat.model.Platform;
 import com.chat.model.RecipientContact;
 import com.chat.repository.RecipientContactRepository;
+import com.google.protobuf.util.Timestamps;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -43,11 +45,11 @@ public class PlatformRoutingService {
     private static final Logger logger = LoggerFactory.getLogger(PlatformRoutingService.class);
     
     private final RecipientContactRepository recipientContactRepository;
-    private final KafkaTemplate<String, PlatformMessageEventDto> platformKafkaTemplate;
+    private final KafkaTemplate<String, com.chat.kafka.v1.PlatformMessageEvent> platformKafkaTemplate;
     
     public PlatformRoutingService(
             RecipientContactRepository recipientContactRepository,
-            KafkaTemplate<String, PlatformMessageEventDto> platformKafkaTemplate) {
+            KafkaTemplate<String, com.chat.kafka.v1.PlatformMessageEvent> platformKafkaTemplate) {
         this.recipientContactRepository = recipientContactRepository;
         this.platformKafkaTemplate = platformKafkaTemplate;
     }
@@ -58,10 +60,10 @@ public class PlatformRoutingService {
      * Called after message is persisted to MongoDB (by MessageDeliveryWorker).
      * Lookups recipient's external contacts and publishes to platform-specific topics.
      * 
-     * @param messageEvent Internal message event
+     * @param messageEvent Internal message event (Protobuf)
      * @param recipientId  Recipient's internal user ID
      */
-    public void routeMessageToPlatforms(MessageEventDto messageEvent, String recipientId) {
+    public void routeMessageToPlatforms(MessageEvent messageEvent, String recipientId) {
         logger.debug("Routing message to platforms - messageId: {}, recipientId: {}", 
                     messageEvent.getMessageId(), recipientId);
         
@@ -90,23 +92,23 @@ public class PlatformRoutingService {
     /**
      * Route message to specific platform topic.
      * 
-     * @param messageEvent Internal message event
+     * @param messageEvent Internal message event (Protobuf)
      * @param contact      Recipient's platform contact
      */
-    private void routeToPlatform(MessageEventDto messageEvent, RecipientContact contact) {
+    private void routeToPlatform(MessageEvent messageEvent, RecipientContact contact) {
         Platform platform = contact.getPlatform();
         String topicName = getPlatformTopicName(platform);
         
-        // Build platform-specific message event
-        PlatformMessageEventDto platformEvent = PlatformMessageEventDto.builder()
-                .messageId(messageEvent.getMessageId())
-                .conversationId(messageEvent.getConversationId())
-                .senderId(messageEvent.getSenderId())
-                .platform(platform)
-                .externalRecipientId(contact.getExternalId())
-                .messageText(messageEvent.getMessageText())
-                .timestamp(messageEvent.getTimestamp())
-                .sequenceNumber(messageEvent.getSequenceNumber())
+        // Build platform-specific message event (Protobuf)
+        PlatformMessageEvent platformEvent = PlatformMessageEvent.newBuilder()
+                .setMessageId(messageEvent.getMessageId())
+                .setConversationId(messageEvent.getConversationId())
+                .setSenderId(messageEvent.getSenderId())
+                .setPlatform(mapToPlatformEnum(platform))
+                .setExternalRecipientId(contact.getExternalId())
+                .setMessageText(messageEvent.hasMessageText() ? messageEvent.getMessageText() : "")
+                .setTimestamp(messageEvent.getTimestamp())
+                .setSequenceNumber(messageEvent.getSequenceNumber())
                 .build();
         
         // Publish to platform-specific topic
@@ -121,11 +123,11 @@ public class PlatformRoutingService {
      * 
      * Similar to text messages but includes fileId instead of messageText.
      * 
-     * @param messageEvent Internal message event
+     * @param messageEvent Internal message event (Protobuf)
      * @param recipientId  Recipient's internal user ID
      * @param fileId       File ID for download URL generation
      */
-    public void routeFileMessageToPlatforms(MessageEventDto messageEvent, String recipientId, String fileId) {
+    public void routeFileMessageToPlatforms(MessageEvent messageEvent, String recipientId, String fileId) {
         logger.debug("Routing file message to platforms - messageId: {}, recipientId: {}, fileId: {}", 
                     messageEvent.getMessageId(), recipientId, fileId);
         
@@ -152,25 +154,24 @@ public class PlatformRoutingService {
     /**
      * Route file message to specific platform topic.
      * 
-     * @param messageEvent Internal message event
+     * @param messageEvent Internal message event (Protobuf)
      * @param contact      Recipient's platform contact
      * @param fileId       File ID for download
      */
-    private void routeFileToPlatform(MessageEventDto messageEvent, RecipientContact contact, String fileId) {
+    private void routeFileToPlatform(MessageEvent messageEvent, RecipientContact contact, String fileId) {
         Platform platform = contact.getPlatform();
         String topicName = getPlatformTopicName(platform);
         
-        // Build platform-specific file message event
-        PlatformMessageEventDto platformEvent = PlatformMessageEventDto.builder()
-                .messageId(messageEvent.getMessageId())
-                .conversationId(messageEvent.getConversationId())
-                .senderId(messageEvent.getSenderId())
-                .platform(platform)
-                .externalRecipientId(contact.getExternalId())
-                .messageText(null)  // Null for file messages
-                .fileId(fileId)     // Include file ID
-                .timestamp(messageEvent.getTimestamp())
-                .sequenceNumber(messageEvent.getSequenceNumber())
+        // Build platform-specific file message event (Protobuf)
+        PlatformMessageEvent platformEvent = PlatformMessageEvent.newBuilder()
+                .setMessageId(messageEvent.getMessageId())
+                .setConversationId(messageEvent.getConversationId())
+                .setSenderId(messageEvent.getSenderId())
+                .setPlatform(mapToPlatformEnum(platform))
+                .setExternalRecipientId(contact.getExternalId())
+                .setFileId(fileId)  // File messages use fileId (oneof content)
+                .setTimestamp(messageEvent.getTimestamp())
+                .setSequenceNumber(messageEvent.getSequenceNumber())
                 .build();
         
         // Publish to platform-specific topic
@@ -196,6 +197,22 @@ public class PlatformRoutingService {
                 return "telegram-messages";
             default:
                 throw new IllegalArgumentException("Unknown platform: " + platform);
+        }
+    }
+    
+    /**
+     * Map domain Platform to Protobuf PlatformMessageEvent.Platform.
+     */
+    private PlatformMessageEvent.Platform mapToPlatformEnum(Platform platform) {
+        switch (platform) {
+            case WHATSAPP:
+                return PlatformMessageEvent.Platform.WHATSAPP;
+            case INSTAGRAM:
+                return PlatformMessageEvent.Platform.INSTAGRAM;
+            case TELEGRAM:
+                return PlatformMessageEvent.Platform.TELEGRAM;
+            default:
+                return PlatformMessageEvent.Platform.PLATFORM_UNSPECIFIED;
         }
     }
     

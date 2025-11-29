@@ -1,13 +1,14 @@
 package com.chat.grpc;
 
-import com.chat.dto.MessageEventDto;
-import com.chat.dto.StateUpdateEventDto;
 import com.chat.grpc.v1.*;
+import com.chat.kafka.v1.MessageEvent;
+import com.chat.kafka.v1.StateUpdateEvent;
 import com.chat.model.MessageStatus;
 import com.chat.service.MessageService;
 import com.chat.service.StreamingService;
 import com.chat.util.UuidValidator;
 import com.google.protobuf.Timestamp;
+import com.google.protobuf.util.Timestamps;
 import io.grpc.stub.StreamObserver;
 import org.lognet.springboot.grpc.GRpcService;
 import org.slf4j.Logger;
@@ -40,15 +41,15 @@ public class ChatServiceImpl extends ChatServiceGrpc.ChatServiceImplBase {
     
     private final MessageService messageService;
     private final StreamingService streamingService;
-    private final KafkaTemplate<String, MessageEventDto> messageKafkaTemplate;
-    private final KafkaTemplate<String, StateUpdateEventDto> stateKafkaTemplate;
+    private final KafkaTemplate<String, MessageEvent> messageKafkaTemplate;
+    private final KafkaTemplate<String, StateUpdateEvent> stateKafkaTemplate;
     private final GlobalExceptionHandler exceptionHandler;
     
     public ChatServiceImpl(
             MessageService messageService,
             StreamingService streamingService,
-            KafkaTemplate<String, MessageEventDto> messageKafkaTemplate,
-            KafkaTemplate<String, StateUpdateEventDto> stateKafkaTemplate,
+            KafkaTemplate<String, MessageEvent> messageKafkaTemplate,
+            KafkaTemplate<String, StateUpdateEvent> stateKafkaTemplate,
             GlobalExceptionHandler exceptionHandler) {
         this.messageService = messageService;
         this.streamingService = streamingService;
@@ -88,15 +89,15 @@ public class ChatServiceImpl extends ChatServiceGrpc.ChatServiceImplBase {
             // Generate sequence number for message ordering (atomic per FR-007)
             Long sequenceNumber = messageService.generateSequenceNumber(conversationId);
             
-            // Create Kafka event DTO
+            // Create Kafka event (Protobuf)
             Instant now = Instant.now();
-            MessageEventDto event = MessageEventDto.builder()
-                    .messageId(messageId)
-                    .conversationId(conversationId)
-                    .senderId(senderId)
-                    .messageText(messageText)
-                    .sequenceNumber(sequenceNumber)
-                    .timestamp(now.toString())
+            MessageEvent event = MessageEvent.newBuilder()
+                    .setMessageId(messageId)
+                    .setConversationId(conversationId)
+                    .setSenderId(senderId)
+                    .setMessageText(messageText)
+                    .setSequenceNumber(sequenceNumber)
+                    .setTimestamp(Timestamps.fromMillis(now.toEpochMilli()))
                     .build();
             
             // Publish to Kafka (async persistence)
@@ -187,14 +188,14 @@ public class ChatServiceImpl extends ChatServiceGrpc.ChatServiceImplBase {
             // Validate user is participant (T042 authorization check)
             String conversationId = messageService.markAsRead(messageId, userId);
             
-            // Publish state-update event to Kafka (T041)
+            // Publish state-update event to Kafka (T041 - Protobuf)
             Instant now = Instant.now();
-            StateUpdateEventDto stateEvent = StateUpdateEventDto.builder()
-                    .messageId(messageId)
-                    .newStatus(MessageStatus.READ)
-                    .userId(userId)
-                    .timestamp(now.toString())
-                    .conversationId(conversationId)
+            StateUpdateEvent stateEvent = StateUpdateEvent.newBuilder()
+                    .setMessageId(messageId)
+                    .setNewStatus(StateUpdateEvent.MessageStatus.READ)
+                    .setUserId(userId)
+                    .setTimestamp(Timestamps.fromMillis(now.toEpochMilli()))
+                    .setConversationId(conversationId)
                     .build();
             
             // Key = message_id ensures all state updates for same message go to same partition (ordering)
@@ -274,7 +275,7 @@ public class ChatServiceImpl extends ChatServiceGrpc.ChatServiceImplBase {
     @Override
     public void streamMessages(
             SubscribeRequest request,
-            StreamObserver<MessageEvent> responseObserver) {
+            StreamObserver<com.chat.grpc.v1.MessageEvent> responseObserver) {
         
         try {
             String userId = request.getUserId();

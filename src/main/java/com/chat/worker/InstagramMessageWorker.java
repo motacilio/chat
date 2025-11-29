@@ -2,8 +2,6 @@ package com.chat.worker;
 
 import com.chat.adapter.PlatformAdapter;
 import com.chat.adapter.dto.SendResult;
-import com.chat.dto.PlatformMessageEventDto;
-import com.chat.dto.StateUpdateEventDto;
 import com.chat.model.MessageStatus;
 import com.chat.model.Platform;
 import com.chat.service.AdapterRegistry;
@@ -48,7 +46,7 @@ public class InstagramMessageWorker {
     private static final Logger logger = LoggerFactory.getLogger(InstagramMessageWorker.class);
     
     private final AdapterRegistry adapterRegistry;
-    private final KafkaTemplate<String, StateUpdateEventDto> stateKafkaTemplate;
+    private final KafkaTemplate<String, com.chat.kafka.v1.StateUpdateEvent> stateKafkaTemplate;
     private final PlatformMessageMappingService mappingService;
     private final WebhookTriggerService webhookTriggerService;
     
@@ -57,7 +55,7 @@ public class InstagramMessageWorker {
     
     public InstagramMessageWorker(
             AdapterRegistry adapterRegistry,
-            KafkaTemplate<String, StateUpdateEventDto> stateKafkaTemplate,
+            KafkaTemplate<String, com.chat.kafka.v1.StateUpdateEvent> stateKafkaTemplate,
             PlatformMessageMappingService mappingService,
             WebhookTriggerService webhookTriggerService) {
         this.adapterRegistry = adapterRegistry;
@@ -78,9 +76,9 @@ public class InstagramMessageWorker {
     @KafkaListener(
             topics = "instagram-messages",
             groupId = "instagram-message-workers",
-            containerFactory = "kafkaListenerContainerFactory"
+            containerFactory = "platformMessageEventKafkaListenerContainerFactory"
     )
-    public void handleInstagramMessage(PlatformMessageEventDto event, Acknowledgment ack) {
+    public void handleInstagramMessage(com.chat.kafka.v1.PlatformMessageEvent event, Acknowledgment ack) {
         try {
             logger.info("[INSTAGRAM WORKER] Processing message - messageId: {}, externalId: {}", 
                        event.getMessageId(), event.getExternalRecipientId());
@@ -90,7 +88,7 @@ public class InstagramMessageWorker {
             
             // Send message via Instagram Mock Adapter
             SendResult result;
-            if (event.getFileId() != null) {
+            if (event.hasFileId()) {
                 // File message: Send download URL
                 String downloadUrl = buildFileDownloadUrl(event.getFileId());
                 String messageText = "📎 File: " + downloadUrl;
@@ -146,7 +144,7 @@ public class InstagramMessageWorker {
      * @param result Failed send result
      * @param ack    Acknowledgment for offset commit
      */
-    private void handleDeliveryFailure(PlatformMessageEventDto event, SendResult result, Acknowledgment ack) {
+    private void handleDeliveryFailure(com.chat.kafka.v1.PlatformMessageEvent event, SendResult result, Acknowledgment ack) {
         String errorCode = result.getErrorCode();
         
         logger.warn("[INSTAGRAM WORKER] Message delivery failed - messageId: {}, errorCode: {}, errorMsg: {}", 
@@ -206,7 +204,7 @@ public class InstagramMessageWorker {
      * @param errorCode    Error code
      * @param errorMessage Error message
      */
-    private void publishFailedState(PlatformMessageEventDto event, String errorCode, String errorMessage) {
+    private void publishFailedState(com.chat.kafka.v1.PlatformMessageEvent event, String errorCode, String errorMessage) {
         // Note: MessageStatus enum doesn't have FAILED state  
         // For MVP, we log the error but don't update message status
         // Future: Add FAILED status to enum or use separate error tracking collection

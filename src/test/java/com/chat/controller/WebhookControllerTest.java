@@ -1,6 +1,5 @@
 package com.chat.controller;
 
-import com.chat.dto.StateUpdateEventDto;
 import com.chat.dto.WebhookCallbackDto;
 import com.chat.model.MessageStatus;
 import com.chat.service.PlatformMessageMappingService;
@@ -26,7 +25,7 @@ import static org.mockito.Mockito.*;
 class WebhookControllerTest {
     
     private WebhookController webhookController;
-    private KafkaTemplate<String, StateUpdateEventDto> stateKafkaTemplate;
+    private KafkaTemplate<String, com.chat.kafka.v1.StateUpdateEvent> stateKafkaTemplate;
     private PlatformMessageMappingService mappingService;
     
     @BeforeEach
@@ -61,12 +60,12 @@ class WebhookControllerTest {
         assertTrue(response.getBody().getSuccess());
         
         // Verify Kafka publish
-        ArgumentCaptor<StateUpdateEventDto> eventCaptor = ArgumentCaptor.forClass(StateUpdateEventDto.class);
+        ArgumentCaptor<com.chat.kafka.v1.StateUpdateEvent> eventCaptor = ArgumentCaptor.forClass(com.chat.kafka.v1.StateUpdateEvent.class);
         verify(stateKafkaTemplate).send(eq("state-update-events"), eq("msg-123"), eventCaptor.capture());
         
-        StateUpdateEventDto publishedEvent = eventCaptor.getValue();
+        com.chat.kafka.v1.StateUpdateEvent publishedEvent = eventCaptor.getValue();
         assertEquals("msg-123", publishedEvent.getMessageId());
-        assertEquals(MessageStatus.DELIVERED, publishedEvent.getNewStatus());
+        assertEquals(com.chat.kafka.v1.StateUpdateEvent.MessageStatus.DELIVERED, publishedEvent.getNewStatus());
         assertEquals("+5511987654321", publishedEvent.getUserId());
     }
     
@@ -94,12 +93,12 @@ class WebhookControllerTest {
         assertTrue(response.getBody().getSuccess());
         
         // Verify Kafka publish
-        ArgumentCaptor<StateUpdateEventDto> eventCaptor = ArgumentCaptor.forClass(StateUpdateEventDto.class);
+        ArgumentCaptor<com.chat.kafka.v1.StateUpdateEvent> eventCaptor = ArgumentCaptor.forClass(com.chat.kafka.v1.StateUpdateEvent.class);
         verify(stateKafkaTemplate).send(eq("state-update-events"), eq("msg-456"), eventCaptor.capture());
         
-        StateUpdateEventDto publishedEvent = eventCaptor.getValue();
+        com.chat.kafka.v1.StateUpdateEvent publishedEvent = eventCaptor.getValue();
         assertEquals("msg-456", publishedEvent.getMessageId());
-        assertEquals(MessageStatus.READ, publishedEvent.getNewStatus());
+        assertEquals(com.chat.kafka.v1.StateUpdateEvent.MessageStatus.READ, publishedEvent.getNewStatus());
         assertEquals("@john_doe", publishedEvent.getUserId());
     }
     
@@ -109,26 +108,27 @@ class WebhookControllerTest {
         // Arrange
         WebhookCallbackDto callback = WebhookCallbackDto.builder()
                 .platformMessageId("wamid.ABC123")
-                .messageId(null)  // Missing
+                .messageId(null)  // Missing - will fail validation before mapping lookup
                 .status(MessageStatus.DELIVERED)
                 .externalRecipientId("+5511987654321")
                 .build();
         
-        // Mock mapping service - no mapping found
-        when(mappingService.findMessageIdByPlatformMessageId("wamid.ABC123"))
-                .thenReturn(Optional.empty());
-        
         // Act
         var response = webhookController.handleWhatsAppCallback(callback);
         
-        // Assert
+        // Assert - should fail validation before even trying to lookup mapping
         assertEquals(400, response.getStatusCodeValue());
         assertFalse(response.getBody().getSuccess());
-        assertTrue(response.getBody().getMessage().contains("platformMessageId") || 
-                   response.getBody().getMessage().contains("mapping"));
+        assertNotNull(response.getBody().getMessage());
+        assertTrue(response.getBody().getMessage().contains("messageId") || 
+                   response.getBody().getMessage().contains("required"),
+                   "Expected message about required messageId, got: " + response.getBody().getMessage());
         
-        // Verify NO Kafka publish
+        // Verify NO Kafka publish (failed validation)
         verify(stateKafkaTemplate, never()).send(anyString(), anyString(), any());
+        
+        // Verify mapping service was NOT called (failed early in validation)
+        verify(mappingService, never()).findMessageIdByPlatformMessageId(anyString());
     }
     
     @Test
@@ -181,10 +181,10 @@ class WebhookControllerTest {
         assertTrue(response.getBody().getSuccess());
         
         // Verify Kafka publish with DELIVERED status
-        ArgumentCaptor<StateUpdateEventDto> eventCaptor = ArgumentCaptor.forClass(StateUpdateEventDto.class);
+        ArgumentCaptor<com.chat.kafka.v1.StateUpdateEvent> eventCaptor = ArgumentCaptor.forClass(com.chat.kafka.v1.StateUpdateEvent.class);
         verify(stateKafkaTemplate).send(eq("state-update-events"), eq("msg-789"), eventCaptor.capture());
         
-        StateUpdateEventDto publishedEvent = eventCaptor.getValue();
-        assertEquals(MessageStatus.DELIVERED, publishedEvent.getNewStatus());
+        com.chat.kafka.v1.StateUpdateEvent publishedEvent = eventCaptor.getValue();
+        assertEquals(com.chat.kafka.v1.StateUpdateEvent.MessageStatus.DELIVERED, publishedEvent.getNewStatus());
     }
 }

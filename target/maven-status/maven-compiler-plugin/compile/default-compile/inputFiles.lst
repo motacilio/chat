@@ -23,14 +23,13 @@ C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\cha
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\dto\InitiateUploadResponse.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\dto\LoginRequest.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\dto\LoginResponse.java
-C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\dto\MessageEventDto.java
-C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\dto\PlatformMessageEventDto.java
-C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\dto\StateUpdateEventDto.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\dto\UserInfo.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\dto\WebhookCallbackDto.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\grpc\ChatServiceImpl.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\grpc\ConversationServiceImpl.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\grpc\GlobalExceptionHandler.java
+C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\kafka\serialization\ProtobufDeserializer.java
+C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\kafka\serialization\ProtobufSerializer.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\model\AuthUser.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\model\Conversation.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\model\ConversationType.java
@@ -130,3 +129,10 @@ C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\target\generated-sour
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\target\generated-sources\protobuf\java\com\chat\grpc\v1\SubscribeRequestOrBuilder.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\target\generated-sources\protobuf\java\com\chat\grpc\v1\UserInfo.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\target\generated-sources\protobuf\java\com\chat\grpc\v1\UserInfoOrBuilder.java
+C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\target\generated-sources\protobuf\java\com\chat\kafka\v1\KafkaEventsProto.java
+C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\target\generated-sources\protobuf\java\com\chat\kafka\v1\MessageEvent.java
+C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\target\generated-sources\protobuf\java\com\chat\kafka\v1\MessageEventOrBuilder.java
+C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\target\generated-sources\protobuf\java\com\chat\kafka\v1\PlatformMessageEvent.java
+C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\target\generated-sources\protobuf\java\com\chat\kafka\v1\PlatformMessageEventOrBuilder.java
+C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\target\generated-sources\protobuf\java\com\chat\kafka\v1\StateUpdateEvent.java
+C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\target\generated-sources\protobuf\java\com\chat\kafka\v1\StateUpdateEventOrBuilder.java

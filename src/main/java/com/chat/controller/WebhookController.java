@@ -1,9 +1,10 @@
 package com.chat.controller;
 
-import com.chat.dto.StateUpdateEventDto;
 import com.chat.dto.WebhookCallbackDto;
+import com.chat.kafka.v1.StateUpdateEvent;
 import com.chat.model.MessageStatus;
 import com.chat.service.PlatformMessageMappingService;
+import com.google.protobuf.util.Timestamps;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -44,11 +45,11 @@ public class WebhookController {
     
     private static final Logger logger = LoggerFactory.getLogger(WebhookController.class);
     
-    private final KafkaTemplate<String, StateUpdateEventDto> stateKafkaTemplate;
+    private final KafkaTemplate<String, com.chat.kafka.v1.StateUpdateEvent> stateKafkaTemplate;
     private final PlatformMessageMappingService mappingService;
     
     public WebhookController(
-            KafkaTemplate<String, StateUpdateEventDto> stateKafkaTemplate,
+            KafkaTemplate<String, com.chat.kafka.v1.StateUpdateEvent> stateKafkaTemplate,
             PlatformMessageMappingService mappingService) {
         this.stateKafkaTemplate = stateKafkaTemplate;
         this.mappingService = mappingService;
@@ -96,11 +97,17 @@ public class WebhookController {
                        messageId, callback.getPlatformMessageId());
             
             // Publish state update event to Kafka
-            StateUpdateEventDto stateEvent = StateUpdateEventDto.builder()
-                    .messageId(messageId)
-                    .newStatus(callback.getStatus())
-                    .userId(callback.getExternalRecipientId())
-                    .timestamp(callback.getTimestamp() != null ? callback.getTimestamp() : Instant.now().toString())
+            com.google.protobuf.Timestamp timestamp = com.google.protobuf.util.Timestamps.fromMillis(
+                callback.getTimestamp() != null ? 
+                    Instant.parse(callback.getTimestamp()).toEpochMilli() : 
+                    Instant.now().toEpochMilli()
+            );
+            
+            com.chat.kafka.v1.StateUpdateEvent stateEvent = com.chat.kafka.v1.StateUpdateEvent.newBuilder()
+                    .setMessageId(messageId)
+                    .setNewStatus(mapToProtobufStatus(callback.getStatus()))
+                    .setUserId(callback.getExternalRecipientId())
+                    .setTimestamp(timestamp)
                     .build();
             
             stateKafkaTemplate.send("state-update-events", messageId, stateEvent);
@@ -173,11 +180,17 @@ public class WebhookController {
                        messageId, callback.getPlatformMessageId());
             
             // Publish state update event to Kafka
-            StateUpdateEventDto stateEvent = StateUpdateEventDto.builder()
-                    .messageId(messageId)
-                    .newStatus(callback.getStatus())
-                    .userId(callback.getExternalRecipientId())
-                    .timestamp(callback.getTimestamp() != null ? callback.getTimestamp() : Instant.now().toString())
+            com.google.protobuf.Timestamp timestamp = com.google.protobuf.util.Timestamps.fromMillis(
+                callback.getTimestamp() != null ? 
+                    Instant.parse(callback.getTimestamp()).toEpochMilli() : 
+                    Instant.now().toEpochMilli()
+            );
+            
+            com.chat.kafka.v1.StateUpdateEvent stateEvent = com.chat.kafka.v1.StateUpdateEvent.newBuilder()
+                    .setMessageId(messageId)
+                    .setNewStatus(mapToProtobufStatus(callback.getStatus()))
+                    .setUserId(callback.getExternalRecipientId())
+                    .setTimestamp(timestamp)
                     .build();
             
             stateKafkaTemplate.send("state-update-events", messageId, stateEvent);
@@ -269,6 +282,22 @@ public class WebhookController {
         
         if (callback.getExternalRecipientId() == null || callback.getExternalRecipientId().trim().isEmpty()) {
             throw new IllegalArgumentException("externalRecipientId is required");
+        }
+    }
+    
+    /**
+     * Map domain MessageStatus to Protobuf StateUpdateEvent.MessageStatus.
+     */
+    private StateUpdateEvent.MessageStatus mapToProtobufStatus(MessageStatus status) {
+        switch (status) {
+            case SENT:
+                return StateUpdateEvent.MessageStatus.SENT;
+            case DELIVERED:
+                return StateUpdateEvent.MessageStatus.DELIVERED;
+            case READ:
+                return StateUpdateEvent.MessageStatus.READ;
+            default:
+                return StateUpdateEvent.MessageStatus.MESSAGE_STATUS_UNSPECIFIED;
         }
     }
     
