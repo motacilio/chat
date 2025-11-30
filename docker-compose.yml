@@ -1,19 +1,70 @@
 version: '3.8'
 
 services:
-  # MongoDB (Persistence - standalone mode for development)
-  mongodb:
+  # MongoDB Replica Set (Persistence - 3-node cluster for high availability and scalability)
+  # Primary node (27017)
+  mongodb-primary:
     image: mongo:7.0
-    container_name: mongodb
+    container_name: mongodb-primary
+    command: ["--replSet", "rs0", "--bind_ip_all", "--port", "27017"]
     ports:
       - "27017:27017"
     volumes:
-      - mongodb_data:/data/db
+      - mongodb_primary_data:/data/db
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - chat-network
+
+  # Secondary node 1 (27018)
+  mongodb-secondary1:
+    image: mongo:7.0
+    container_name: mongodb-secondary1
+    command: ["--replSet", "rs0", "--bind_ip_all", "--port", "27017"]
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongodb_secondary1_data:/data/db
+    networks:
+      - chat-network
+
+  # Secondary node 2 (27019)
+  mongodb-secondary2:
+    image: mongo:7.0
+    container_name: mongodb-secondary2
+    command: ["--replSet", "rs0", "--bind_ip_all", "--port", "27017"]
+    ports:
+      - "27019:27017"
+    volumes:
+      - mongodb_secondary2_data:/data/db
+    networks:
+      - chat-network
+
+  # MongoDB Replica Set Initializer (runs once to configure replica set)
+  mongodb-init:
+    image: mongo:7.0
+    container_name: mongodb-init
+    depends_on:
+      - mongodb-primary
+      - mongodb-secondary1
+      - mongodb-secondary2
+    command: >
+      mongosh --host mongodb-primary:27017 --eval "
+      rs.initiate({
+        _id: 'rs0',
+        members: [
+          { _id: 0, host: 'mongodb-primary:27017', priority: 2 },
+          { _id: 1, host: 'mongodb-secondary1:27017', priority: 1 },
+          { _id: 2, host: 'mongodb-secondary2:27017', priority: 1 }
+        ]
+      });
+      "
+    networks:
+      - chat-network
+    restart: "no"
 
   # Zookeeper (Kafka coordination service)
   zookeeper:
@@ -24,6 +75,8 @@ services:
       ZOOKEEPER_TICK_TIME: 2000
     ports:
       - "2181:2181"
+    networks:
+      - chat-network
 
   # Apache Kafka (Message Broker - replaces RabbitMQ per research.md Decision 2)
   kafka:
@@ -47,6 +100,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - chat-network
 
   # Kafka UI (Optional - Management Interface)
   kafka-ui:
@@ -59,6 +114,8 @@ services:
     environment:
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+    networks:
+      - chat-network
 
   # MinIO Object Storage (User Story 4 - P2: File Upload/Download up to 2 GB)
   # S3-compatible API for cost-effective blob storage
@@ -81,6 +138,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - chat-network
 
   # Chat API (Spring Boot gRPC Server)
   chat-api:
@@ -93,17 +152,25 @@ services:
       - "8081:8081"  # Spring Boot Actuator (health checks)
     environment:
       SPRING_PROFILES_ACTIVE: docker
-      MONGODB_URI: mongodb://mongodb:27017/chat
+      MONGODB_URI: mongodb://mongodb-primary:27017,mongodb-secondary1:27017,mongodb-secondary2:27017/chat?replicaSet=rs0
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
     extra_hosts:
       - "localhost:host-gateway"  # Allow container to reach MinIO at localhost:9000
     depends_on:
       kafka:
         condition: service_healthy
-      mongodb:
+      mongodb-primary:
         condition: service_healthy
     restart: unless-stopped
+    networks:
+      - chat-network
+
+networks:
+  chat-network:
+    driver: bridge
 
 volumes:
-  mongodb_data:
+  mongodb_primary_data:
+  mongodb_secondary1_data:
+  mongodb_secondary2_data:
   minio_data:

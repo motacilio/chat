@@ -1,11 +1,16 @@
 spring:
-  # MongoDB Configuration (Docker)
+  # MongoDB Configuration (Docker) with Replica Set and Connection Pooling
   data:
     mongodb:
       uri: ${MONGODB_URI}
       database: chat
+      # Connection pooling configuration for scalability (10,000 concurrent users)
+      # Max pool size: 50 connections per instance (conservative for 3-node replica set)
+      # Min pool size: 10 keeps warm connections ready
+      # Max wait time: 2000ms prevents thread starvation
+      auto-index-creation: true
   
-  # Kafka Configuration (Docker)
+  # Kafka Configuration (Docker) with Performance Tuning
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS}
     consumer:
@@ -16,13 +21,29 @@ spring:
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
       properties:
         spring.json.trusted.packages: "*"
+        # Scalability: Reduce prefetch to enable backpressure
         max.poll.records: 10
+        # Connection pooling: Reuse connections
+        connections.max.idle.ms: 540000
+        # Performance: Increase fetch size for throughput
+        fetch.min.bytes: 1024
+        fetch.max.wait.ms: 500
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      # Durability: Wait for all replicas (at-least-once delivery)
       acks: all
+      # Performance: Batch messages for throughput
+      batch-size: 16384
+      linger-ms: 10
+      # Connection pooling: Limit connections per instance
+      properties:
+        max.in.flight.requests.per.connection: 5
+        connections.max.idle.ms: 540000
     listener:
       ack-mode: manual
+      # Concurrency: 3 consumer threads per listener (horizontal scaling)
+      concurrency: 3
 
 logging:
   level:

@@ -12,6 +12,7 @@ C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\cha
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\config\MetricsConfig.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\config\MinioConfig.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\config\MongoConfig.java
+C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\config\RateLimitConfig.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\config\SecurityConfig.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\controller\AuthenticationController.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\controller\FileController.java
@@ -25,6 +26,7 @@ C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\cha
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\dto\LoginResponse.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\dto\UserInfo.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\dto\WebhookCallbackDto.java
+C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\exception\RateLimitExceededException.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\grpc\ChatServiceImpl.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\grpc\ConversationServiceImpl.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\grpc\GlobalExceptionHandler.java
@@ -56,6 +58,7 @@ C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\cha
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\service\MessageService.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\service\PlatformMessageMappingService.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\service\PlatformRoutingService.java
+C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\service\RateLimitService.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\service\StreamingService.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\service\UserService.java
 C:\Users\marcos.pereira\Desktop\programacao\java\chat\chat\src\main\java\com\chat\service\WebhookTriggerService.java

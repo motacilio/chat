@@ -1,6 +1,7 @@
 package com.chat.service;
 
 import com.chat.model.FileMetadata;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.minio.*;
 import io.minio.http.Method;
 import lombok.RequiredArgsConstructor;
@@ -16,7 +17,7 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 /**
- * File Storage Service (User Story 4 - P2: Upload and Download Files)
+ * File Storage Service (User Story 4 - P2: Upload and Download Files) with Circuit Breaker
  * 
  * Responsibility: Manages file uploads/downloads to MinIO Object Storage with resumable protocol.
  * Does NOT: Handle authentication (see SecurityConfig), manage message creation (see MessageService).
@@ -26,6 +27,11 @@ import java.util.concurrent.TimeUnit;
  * - Horizontal scaling (stateless app servers)
  * - Cost reduction (storage traffic bypasses app tier)
  * - Better performance (direct upload with multipart resumable protocol)
+ * 
+ * Circuit Breaker Pattern: Prevents cascading failures when MinIO is unavailable.
+ * - Failure threshold: 50% of calls fail → circuit opens
+ * - Wait duration: 10 seconds before attempting half-open state
+ * - Fallback: Return error message to client, log failure for ops team
  * 
  * Upload Flow (Resumable Protocol):
  * 1. Client: POST /api/files/initiate → Get upload_url (pre-signed PUT)
@@ -101,6 +107,10 @@ public class FileStorageService {
      * - Filename and mime type required
      * - Conversation must exist
      * 
+     * Circuit Breaker: Protected by 'minio' circuit breaker (50% failure threshold)
+     * - If MinIO is down, circuit opens after 5 failures in 100 requests
+     * - Returns fallback error immediately when circuit is OPEN
+     * 
      * @param filename       Original filename (e.g., "document.pdf")
      * @param sizeBytes      File size in bytes
      * @param mimeType       MIME type (e.g., "application/pdf")
@@ -108,7 +118,9 @@ public class FileStorageService {
      * @param uploaderId     Uploader user_id
      * @return FileMetadata with INITIATED status and upload_url
      * @throws IllegalArgumentException if file size > 2 GB
+     * @throws RuntimeException if MinIO is unavailable (circuit breaker fallback)
      */
+    @CircuitBreaker(name = "minio", fallbackMethod = "initiateUploadFallback")
     public FileMetadata initiateUpload(
             String filename,
             Long sizeBytes,
@@ -313,5 +325,34 @@ public class FileStorageService {
     public FileMetadata getFileMetadata(String fileId) {
         Query query = new Query(Criteria.where("fileId").is(fileId));
         return mongoTemplate.findOne(query, FileMetadata.class);
+    }
+    
+    /**
+     * Circuit Breaker fallback for initiateUpload.
+     * Called when MinIO is unavailable or circuit is OPEN.
+     * 
+     * @param filename       Original filename
+     * @param sizeBytes      File size in bytes
+     * @param mimeType       MIME type
+     * @param conversationId Conversation UUID
+     * @param uploaderId     Uploader user_id
+     * @param throwable      Exception that triggered circuit breaker
+     * @return Never returns (always throws)
+     * @throws RuntimeException with descriptive error message
+     */
+    private FileMetadata initiateUploadFallback(
+            String filename,
+            Long sizeBytes,
+            String mimeType,
+            String conversationId,
+            String uploaderId,
+            Throwable throwable) {
+        
+        log.error("MinIO circuit breaker OPEN - Upload initiation failed for file: {}, size: {} bytes, uploader: {}, error: {}",
+                filename, sizeBytes, uploaderId, throwable.getMessage());
+        
+        throw new RuntimeException(
+                "File storage service temporarily unavailable. Please try again in a few moments.",
+                throwable);
     }
 }

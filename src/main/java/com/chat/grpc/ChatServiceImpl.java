@@ -1,14 +1,17 @@
 package com.chat.grpc;
 
+import com.chat.exception.RateLimitExceededException;
 import com.chat.grpc.v1.*;
 import com.chat.kafka.v1.MessageEvent;
 import com.chat.kafka.v1.StateUpdateEvent;
 import com.chat.model.MessageStatus;
 import com.chat.service.MessageService;
+import com.chat.service.RateLimitService;
 import com.chat.service.StreamingService;
 import com.chat.util.UuidValidator;
 import com.google.protobuf.Timestamp;
 import com.google.protobuf.util.Timestamps;
+import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import org.lognet.springboot.grpc.GRpcService;
 import org.slf4j.Logger;
@@ -41,6 +44,7 @@ public class ChatServiceImpl extends ChatServiceGrpc.ChatServiceImplBase {
     
     private final MessageService messageService;
     private final StreamingService streamingService;
+    private final RateLimitService rateLimitService;
     private final KafkaTemplate<String, MessageEvent> messageKafkaTemplate;
     private final KafkaTemplate<String, StateUpdateEvent> stateKafkaTemplate;
     private final GlobalExceptionHandler exceptionHandler;
@@ -48,11 +52,13 @@ public class ChatServiceImpl extends ChatServiceGrpc.ChatServiceImplBase {
     public ChatServiceImpl(
             MessageService messageService,
             StreamingService streamingService,
+            RateLimitService rateLimitService,
             KafkaTemplate<String, MessageEvent> messageKafkaTemplate,
             KafkaTemplate<String, StateUpdateEvent> stateKafkaTemplate,
             GlobalExceptionHandler exceptionHandler) {
         this.messageService = messageService;
         this.streamingService = streamingService;
+        this.rateLimitService = rateLimitService;
         this.messageKafkaTemplate = messageKafkaTemplate;
         this.stateKafkaTemplate = stateKafkaTemplate;
         this.exceptionHandler = exceptionHandler;
@@ -62,10 +68,15 @@ public class ChatServiceImpl extends ChatServiceGrpc.ChatServiceImplBase {
      * SendMessage gRPC endpoint (T032 - User Story 1).
      * 
      * Flow:
-     * 1. Validate request (MessageService validates message_id, conversation, sender authorization)
-     * 2. Generate sequence number (atomic MongoDB increment per FR-007)
-     * 3. Publish message event to Kafka (async persistence via MessageDeliveryWorker)
-     * 4. Return success response immediately (fire-and-forget pattern)
+     * 1. Check rate limit (100 messages/minute per user)
+     * 2. Validate request (MessageService validates message_id, conversation, sender authorization)
+     * 3. Generate sequence number (atomic MongoDB increment per FR-007)
+     * 4. Publish message event to Kafka (async persistence via MessageDeliveryWorker)
+     * 5. Return success response immediately (fire-and-forget pattern)
+     * 
+     * Rate Limiting: 100 messages per minute per user (configured in application.yml)
+     * - Throws RESOURCE_EXHAUSTED if limit exceeded
+     * - Rate limit resets every 60 seconds
      * 
      * Idempotency: Client provides message_id (UUID). Duplicate requests return success without re-publishing.
      * 
@@ -82,6 +93,19 @@ public class ChatServiceImpl extends ChatServiceGrpc.ChatServiceImplBase {
             String senderId = request.getSenderId();
             String recipientId = request.getRecipientId();
             String messageText = request.getMessageText();
+            
+            // Rate limiting: Check if user exceeded 100 messages/minute
+            try {
+                rateLimitService.checkMessageSendingLimit(senderId);
+            } catch (RateLimitExceededException e) {
+                logger.warn("Rate limit exceeded for user: {} - operation: {}, retry after: {}s",
+                        e.getUserId(), e.getOperation(), e.getRetryAfterSeconds());
+                responseObserver.onError(Status.RESOURCE_EXHAUSTED
+                        .withDescription(String.format("Rate limit exceeded: %s. Retry after %d seconds.",
+                                e.getMessage(), e.getRetryAfterSeconds()))
+                        .asRuntimeException());
+                return;
+            }
             
             // Validate message (includes authorization, size limits, idempotency check)
             messageService.validateMessage(messageId, conversationId, senderId, recipientId, messageText);

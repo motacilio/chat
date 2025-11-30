@@ -5,12 +5,14 @@ import com.chat.dto.CompleteUploadResponse;
 import com.chat.dto.DownloadFileResponse;
 import com.chat.dto.InitiateUploadRequest;
 import com.chat.dto.InitiateUploadResponse;
+import com.chat.exception.RateLimitExceededException;
 import com.chat.kafka.v1.MessageEvent;
 import com.chat.model.FileMetadata;
 import com.chat.model.Message;
 import com.chat.model.FileMetadata.FileUploadStatus;
 import com.chat.service.FileStorageService;
 import com.chat.service.JwtService;
+import com.chat.service.RateLimitService;
 import com.google.protobuf.util.Timestamps;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
@@ -54,6 +56,9 @@ public class FileController {
     private JwtService jwtService;
     
     @Autowired
+    private RateLimitService rateLimitService;
+    
+    @Autowired
     private com.chat.service.MessageService messageService;
     
     @Autowired
@@ -70,11 +75,16 @@ public class FileController {
      * Initiates resumable file upload.
      * 
      * Flow:
-     * 1. Validates file size ≤ 2 GB
-     * 2. Generates server-side UUID fileId
-     * 3. Creates pre-signed PUT URL (1 hour validity)
-     * 4. Persists FileMetadata with INITIATED status
-     * 5. Returns upload URL to client
+     * 1. Check rate limit (10 file uploads per minute per user)
+     * 2. Validates file size ≤ 2 GB
+     * 3. Generates server-side UUID fileId
+     * 4. Creates pre-signed PUT URL (1 hour validity)
+     * 5. Persists FileMetadata with INITIATED status
+     * 6. Returns upload URL to client
+     * 
+     * Rate Limiting: 10 file uploads per minute per user (configured in application.yml)
+     * - Returns HTTP 429 (Too Many Requests) if limit exceeded
+     * - Rate limit resets every 60 seconds
      * 
      * @param request Upload request (conversation_id, filename, size_bytes, mime_type)
      * @param authHeader JWT token (format: "Bearer <token>")
@@ -92,6 +102,17 @@ public class FileController {
         // Extract user ID from JWT
         String token = authHeader.replace("Bearer ", "");
         String uploaderId = jwtService.extractUserId(token);
+        
+        // Rate limiting: Check if user exceeded 10 file uploads/minute
+        try {
+            rateLimitService.checkFileUploadLimit(uploaderId);
+        } catch (RateLimitExceededException e) {
+            log.warn("Rate limit exceeded for user: {} - operation: {}, retry after: {}s",
+                    e.getUserId(), e.getOperation(), e.getRetryAfterSeconds());
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .header("Retry-After", String.valueOf(e.getRetryAfterSeconds()))
+                    .body(null);
+        }
 
         // Call service to initiate upload (generates pre-signed URL)
         FileMetadata fileMetadata = fileStorageService.initiateUpload(

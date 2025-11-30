@@ -63,3 +63,72 @@ logging:
     io.minio: DEBUG
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} - %logger{36} - %msg%n"
+
+# Resilience4j Circuit Breaker Configuration
+resilience4j:
+  circuitbreaker:
+    instances:
+      # MinIO file storage circuit breaker
+      minio:
+        registerHealthIndicator: true
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        waitDurationInOpenState: 10s
+        failureRateThreshold: 50
+        slowCallRateThreshold: 50
+        slowCallDurationThreshold: 5s
+        recordExceptions:
+          - java.io.IOException
+          - io.minio.errors.MinioException
+      
+      # WhatsApp adapter circuit breaker
+      whatsapp:
+        registerHealthIndicator: true
+        slidingWindowSize: 20
+        minimumNumberOfCalls: 10
+        permittedNumberOfCallsInHalfOpenState: 5
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        waitDurationInOpenState: 30s
+        failureRateThreshold: 30
+        slowCallRateThreshold: 40
+        slowCallDurationThreshold: 3s
+        recordExceptions:
+          - java.net.ConnectException
+          - java.net.SocketTimeoutException
+      
+      # Instagram adapter circuit breaker
+      instagram:
+        registerHealthIndicator: true
+        slidingWindowSize: 20
+        minimumNumberOfCalls: 10
+        permittedNumberOfCallsInHalfOpenState: 5
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        waitDurationInOpenState: 30s
+        failureRateThreshold: 30
+        slowCallRateThreshold: 40
+        slowCallDurationThreshold: 3s
+        recordExceptions:
+          - java.net.ConnectException
+          - java.net.SocketTimeoutException
+  
+  # Rate Limiter Configuration
+  ratelimiter:
+    instances:
+      # Message sending rate limiter (100 messages/minute per user)
+      sendMessage:
+        registerHealthIndicator: true
+        limitForPeriod: 100
+        limitRefreshPeriod: 60s
+        timeoutDuration: 0s  # Reject immediately if limit exceeded
+        eventConsumerBufferSize: 100
+      
+      # File upload rate limiter (10 uploads/minute per user)
+      fileUpload:
+        registerHealthIndicator: true
+        limitForPeriod: 10
+        limitRefreshPeriod: 60s
+        timeoutDuration: 0s
+        eventConsumerBufferSize: 50
+
