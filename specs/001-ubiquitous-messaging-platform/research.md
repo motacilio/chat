@@ -92,22 +92,35 @@ Producer (API) → message-events → MessageDeliveryWorker → MongoDB
                   Simulate platform delivery (logs, no real HTTP call)
 
 ┌─────────────────────────────────────────────────────────────────────────┐
-│ Inbound: External Platforms → Internal (Kafka, NOT HTTP Webhooks)       │
+│ Inbound: External Platforms → Internal (HTTP Webhooks for Production)   │
 └─────────────────────────────────────────────────────────────────────────┘
-                  WhatsAppWorker (producer) → platform-callback-events topic
+                  WhatsApp/Instagram API → HTTP POST webhook
                                          ↓
-                  PlatformCallbackWorker (consumer) → state-update-events
+                  WebhookController (public IP required)
+                                         ↓
+                  Publish to Kafka → state-update-events topic
                                          ↓
                   MessageStateUpdateWorker → MongoDB (DELIVERED status)
+                                         ↓
+                  StreamingService → gRPC stream to sender
+
+Note: For development/testing without public IP, use polling as fallback:
+      @Scheduled worker → HTTP GET status API → Kafka (10-30s latency)
 ```
 
-**Why Kafka for Callbacks (NOT HTTP Webhooks)**:
-- **HTTP webhooks fail in production**: Requires public IP/DNS, firewall rules, NAT traversal
-- **Localhost-only**: `http://localhost:8081` only works on single machine (breaks in distributed systems)
-- **Network complexity**: Firewalls block inbound HTTP, corporate proxies interfere
-- **Kafka is bidirectional**: Same infrastructure for outbound (messages) and inbound (callbacks)
-- **Reliability**: Kafka retries, ordering, durability > HTTP retry logic
-- **Scalability**: No need for load balancers, DNS, SSL certificates for webhooks
+**Production Recommendation: HTTP Webhooks (requires infrastructure)**:
+- **Webhooks are preferred for production**: Zero latency, event-driven, scalable
+- **Requirements**: Public IP/DNS, SSL certificate, firewall configuration, load balancer
+- **WhatsApp/Instagram APIs**: Designed for webhooks (push model), polling discouraged at scale
+- **Kafka for internal routing**: Webhooks publish to Kafka for reliable internal processing
+- **Reliability**: Kafka ensures durability after webhook receives callback
+- **Scalability**: Load balancer distributes webhook requests across multiple instances
+
+**Development Fallback: Polling (only for local testing)**:
+- **Use when**: No public IP available (localhost development, private network)
+- **Trade-offs**: 10-30s latency, constant API overhead, limited scalability
+- **Not recommended for production**: WhatsApp/Instagram APIs have rate limits, polling wastes quota
+- **Polling implementation**: `@Scheduled` worker → HTTP GET → parse updates → Kafka
 
 **Partition Strategy**:
 - **Partition Key**: conversation_id (guarantees all messages in a conversation go to same partition)
