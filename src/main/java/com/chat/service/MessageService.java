@@ -5,6 +5,7 @@ import com.chat.model.Message;
 import com.chat.model.MessageStatus;
 import com.chat.repository.ConversationRepository;
 import com.chat.repository.MessageRepository;
+import com.chat.util.InputSanitizer;
 import com.chat.util.UuidValidator;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -138,7 +139,10 @@ public class MessageService {
                 throw new IllegalArgumentException("message_text cannot be empty");
             }
             
-            int sizeBytes = messageText.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+            // Security: Sanitize input to prevent XSS and NoSQL injection (T105)
+            String sanitizedText = InputSanitizer.sanitizeText(messageText);
+            
+            int sizeBytes = sanitizedText.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
             if (sizeBytes > MAX_MESSAGE_SIZE_BYTES) {
                 throw new IllegalArgumentException(
                         String.format("message_text exceeds maximum size of %d bytes (actual: %d bytes)", 

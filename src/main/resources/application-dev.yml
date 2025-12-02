@@ -41,6 +41,19 @@ minio:
   download-url-expiration-seconds: 3600  # 1 hour
   chunk-size-bytes: 5242880  # 5 MB chunks for resumable upload
 
+# Resilience4j Configuration
+resilience4j:
+  ratelimiter:
+    instances:
+      sendMessage:
+        limit-for-period: 100
+        limit-refresh-period: 1s
+        timeout-duration: 0s
+      default:
+        limit-for-period: 50
+        limit-refresh-period: 1s
+        timeout-duration: 0s
+
 logging:
   level:
     com.chat: DEBUG

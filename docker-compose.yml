@@ -154,6 +154,8 @@ services:
       SPRING_PROFILES_ACTIVE: docker
       MONGODB_URI: mongodb://mongodb-primary:27017,mongodb-secondary1:27017,mongodb-secondary2:27017/chat?replicaSet=rs0
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      MINIO_ENDPOINT: http://minio:9000  # Internal Docker network access
+      MINIO_EXTERNAL_ENDPOINT: http://localhost:9000  # External access for pre-signed URLs
     extra_hosts:
       - "localhost:host-gateway"  # Allow container to reach MinIO at localhost:9000
     depends_on:

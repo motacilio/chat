@@ -51,13 +51,14 @@ public class MinioConfig {
     
     /**
      * Creates MinIO client bean for file operations.
+     * Uses internal Docker network endpoint for container-to-container communication.
      * 
      * Security Note (POC):
      * - Using hardcoded credentials for development (minioadmin/minioadmin)
      * - PRODUCTION: Use environment variables, Kubernetes secrets, or AWS IAM roles
      * - Never commit credentials to git (add to .gitignore)
      * 
-     * @return Configured MinIO client
+     * @return Configured MinIO client for internal operations
      */
     @Bean
     public MinioClient minioClient() {
@@ -76,6 +77,32 @@ public class MinioConfig {
             log.error("Failed to initialize MinIO client - Endpoint: {}, Error: {}", 
                     minioEndpoint, e.getMessage(), e);
             throw new RuntimeException("MinIO client initialization failed", e);
+        }
+    }
+    
+    /**
+     * Creates external MinIO client for generating pre-signed URLs accessible from outside Docker.
+     * Uses external endpoint (http://localhost:9000) so clients can upload directly.
+     * 
+     * @return Configured MinIO client for external URL generation
+     */
+    @Bean
+    public MinioClient externalMinioClient() {
+        log.info("Initializing EXTERNAL MinIO client - Endpoint: {}", externalEndpoint);
+        
+        try {
+            MinioClient client = MinioClient.builder()
+                    .endpoint(externalEndpoint)
+                    .credentials(minioAccessKey, minioSecretKey)
+                    .build();
+            
+            log.info("External MinIO client initialized successfully");
+            return client;
+            
+        } catch (Exception e) {
+            log.error("Failed to initialize external MinIO client - Endpoint: {}, Error: {}", 
+                    externalEndpoint, e.getMessage(), e);
+            throw new RuntimeException("External MinIO client initialization failed", e);
         }
     }
     

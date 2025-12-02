@@ -1,13 +1,13 @@
-# Teste de Escalabilidade - 1000+ Usuários Concorrentes
-# Valida throughput, latência p95 e consumer lag com carga pesada
-#
-# Pré-requisitos:
-# 1. Sistema rodando com docker-compose up
-# 2. MongoDB replica set inicializado
-# 3. Kafka tópicos criados
-#
-# Execução:
-# k6 run scripts/load-test/k6-scalability-test.js
+// Teste de Escalabilidade - 1000+ Usuários Concorrentes
+// Valida throughput, latência p95 e consumer lag com carga pesada
+//
+// Pré-requisitos:
+// 1. Sistema rodando com docker-compose up
+// 2. MongoDB replica set inicializado
+// 3. Kafka tópicos criados
+//
+// Execução:
+// k6 run scripts/load-test/k6-scalability-test.js
 
 import grpc from 'k6/net/grpc';
 import { check, sleep } from 'k6';

@@ -153,4 +153,79 @@ public class WebhookTriggerService {
             // Don't throw - webhook failures shouldn't break message delivery
         }
     }
+    
+    /**
+     * Trigger Telegram DELIVERED webhook callback asynchronously.
+     * 
+     * Simulates the delay between message delivery and webhook callback arrival.
+     * Real Telegram webhooks typically arrive 500ms-2s after delivery (faster than WhatsApp/Instagram).
+     * 
+     * @param platformMessageId Telegram message ID (numeric)
+     * @param externalId Recipient chat ID or @username
+     */
+    @Async
+    public void triggerTelegramDelivered(String platformMessageId, String externalId) {
+        try {
+            // Simulate realistic webhook latency (500-2000ms, faster than WhatsApp/Instagram)
+            int latencyMs = 500 + random.nextInt(1500);
+            Thread.sleep(latencyMs);
+            
+            // Build webhook callback payload
+            WebhookCallbackDto callback = WebhookCallbackDto.builder()
+                    .platformMessageId(platformMessageId)
+                    .messageId(platformMessageId) // Will be resolved by WebhookController
+                    .status(MessageStatus.DELIVERED)
+                    .externalRecipientId(externalId)
+                    .timestamp(Instant.now().toString())
+                    .build();
+            
+            // POST to webhook endpoint
+            String webhookUrl = webhookBaseUrl + "/api/webhooks/telegram";
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            HttpEntity<WebhookCallbackDto> request = new HttpEntity<>(callback, headers);
+            
+            restTemplate.postForEntity(webhookUrl, request, String.class);
+            
+            logger.info("[WEBHOOK TRIGGER] Telegram DELIVERED callback sent - platformMessageId: {}, latency: {}ms",
+                       platformMessageId, latencyMs);
+            
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.warn("[WEBHOOK TRIGGER] Telegram callback interrupted - platformMessageId: {}", 
+                       platformMessageId, e);
+        } catch (Exception e) {
+            logger.error("[WEBHOOK TRIGGER] Failed to send Telegram callback - platformMessageId: {}, error: {}",
+                        platformMessageId, e.getMessage());
+            // Don't throw - webhook failures shouldn't break message delivery
+        }
+    }
+    
+    /**
+     * Process incoming message from external platform (Telegram, WhatsApp, Instagram).
+     * 
+     * Called by webhook controllers when external platforms push incoming messages.
+     * Routes message to internal system by:
+     * 1. Lookup internal user ID via LinkedAccount (platform externalId → userId)
+     * 2. Create internal Message entity
+     * 3. Publish to Kafka message-events topic
+     * 4. MessageDeliveryWorker will persist and route to recipients
+     * 
+     * @param callback Webhook callback DTO with platform message details
+     */
+    public void processIncomingMessage(WebhookCallbackDto callback) {
+        logger.info("[WEBHOOK] Processing incoming message - externalId: {}, platformMessageId: {}",
+                   callback.getExternalRecipientId(), callback.getPlatformMessageId());
+        
+        // TODO: Implement actual message routing logic
+        // 1. Lookup LinkedAccount by platform + externalId to get internal userId
+        // 2. Find or create conversation for this user
+        // 3. Create internal Message entity
+        // 4. Publish to message-events Kafka topic
+        // 5. MessageDeliveryWorker will handle persistence and routing
+        
+        logger.warn("[WEBHOOK] ⚠️ Incoming message processing not implemented yet - message logged only");
+        logger.debug("[WEBHOOK] Message details - timestamp: {}, status: {}",
+                    callback.getTimestamp(), callback.getStatus());
+    }
 }

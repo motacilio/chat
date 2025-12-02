@@ -153,9 +153,30 @@ public class MessageDeliveryWorker {
                         message.setSequenceNumber(event.getSequenceNumber());
                         message.setTimestamp(timestamp);
                         
-                        // Initialize state history with SENT status
+                        // T068: Initialize state history based on conversation type (fan-out for groups)
+                        // For PRIVATE (1:1): Single SENT state
+                        // For GROUP: SENT + per-recipient DELIVERED states (fan-out pattern)
                         List<MessageStateTransition> stateHistory = new ArrayList<>();
                         stateHistory.add(MessageStateTransition.create(MessageStatus.SENT, null));
+                        
+                        // Educational Note: Fan-out pattern for group messages
+                        // Each recipient gets their own DELIVERED state tracked separately.
+                        // This enables per-user acknowledgments and read receipts in group chats.
+                        // Why? In a group with N members, we need to track N delivery confirmations.
+                        // Example: Group with 3 users → 1 SENT + 3 DELIVERED states (one per recipient)
+                        if (event.getRecipientIdsCount() > 1) {
+                            // GROUP conversation - create per-recipient DELIVERED states (fan-out)
+                            for (String recipientId : event.getRecipientIdsList()) {
+                                // Don't create DELIVERED for sender (they already know they sent it)
+                                if (!recipientId.equals(event.getSenderId())) {
+                                    stateHistory.add(MessageStateTransition.create(MessageStatus.DELIVERED, recipientId));
+                                }
+                            }
+                            
+                            logger.debug("Fan-out delivery created - message_id: {}, recipients: {}, states: {}",
+                                    messageId, event.getRecipientIdsCount(), stateHistory.size());
+                        }
+                        
                         message.setStateHistory(stateHistory);
                         
                         // Persist to MongoDB

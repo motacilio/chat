@@ -1,8 +1,24 @@
 # Guia de Monitoramento - Prometheus e Grafana
 
-**Data**: 27 de Novembro de 2025  
+**⚠️ ATENÇÃO**: Este documento está **DESATUALIZADO** (27/11/2025).
+
+**🔗 USE O GUIA ATUALIZADO**: `docs/GUIA-GRAFANA-PROMETHEUS-TESTES.md`
+
+O guia atualizado (01/12/2025) contém:
+- ✅ Workaround para Spring Boot 3.2.5 bug
+- ✅ Configurações corretas (porta 9091, scrape interval 10s)
+- ✅ 50+ queries PromQL
+- ✅ Testes de carga com k6/ghz
+- ✅ Chaos engineering
+- ✅ Troubleshooting completo
+
+---
+
+## 📋 Visão Geral (Documento Histórico)
+
+**Data Original**: 27 de Novembro de 2025  
 **Autor**: Chat API Team  
-**Objetivo**: Guia completo para configurar e usar a stack de monitoramento (Prometheus + Grafana)
+**Status**: Substituído por `GUIA-GRAFANA-PROMETHEUS-TESTES.md`
 
 ---
 

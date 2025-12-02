@@ -37,7 +37,7 @@ if ($minioStatus -match "Up") {
 }
 
 Write-Log "Checking Kafka..." -Color Yellow
-$kafkaStatus = docker ps --filter "name=kafka-dev" --format "{{.Status}}"
+$kafkaStatus = docker ps --filter "name=kafka" --format "{{.Status}}"
 if ($kafkaStatus -match "Up") {
     Write-Log "[OK] Kafka is running" -Color Green
 } else {
@@ -72,7 +72,7 @@ Write-Log "    Token: $($token.Substring(0, 50))..." -Color Gray
 Write-Step "2/8" "CREATE TEST CONVERSATION"
 
 $convId = [guid]::NewGuid().ToString()
-docker exec mongodb-dev mongosh chat --quiet --eval "db.conversations.insertOne({conversation_id: '$convId', type: 'PRIVATE', participants: ['$aliceId', 'b2b2b2b2-2222-2222-2222-222222222222'], created_at: new Date(), last_message_at: new Date()})" | Out-Null
+docker exec mongodb-primary mongosh chat --quiet --eval "db.conversations.insertOne({conversation_id: '$convId', type: 'PRIVATE', participants: ['$aliceId', 'b2b2b2b2-2222-2222-2222-222222222222'], created_at: new Date(), last_message_at: new Date()})" | Out-Null
 Write-Log "[OK] Conversation created: $convId" -Color Green
 
 # Step 3: Create test file
@@ -118,12 +118,14 @@ try {
 Write-Step "5/8" "UPLOAD FILE TO MINIO"
 
 try {
-    $fileContent = Get-Content -Path $testFile -Raw -Encoding UTF8
-    $uploadResult = Invoke-RestMethod -Uri $uploadUrl -Method PUT -Body $fileContent -ContentType "text/plain"
+    # Read file as bytes and upload directly to MinIO
+    $fullPath = Join-Path (Get-Location) $testFile
+    $fileBytes = [System.IO.File]::ReadAllBytes($fullPath)
+    $uploadResult = Invoke-RestMethod -Uri $uploadUrl -Method PUT -Body $fileBytes -ContentType "text/plain"
     Write-Log "[OK] File uploaded to MinIO" -Color Green
 } catch {
     Write-Log "[ERROR] MinIO upload failed: $_" -Color Red
-    Write-Log "    This is expected if pre-signed URL format is incorrect" -Color Yellow
+    Write-Log "    HTTP Status: $($_.Exception.Response.StatusCode.value__)" -Color Yellow
     Write-Log "    Check MinIO logs: docker logs minio" -Color Yellow
 }
 
@@ -166,7 +168,7 @@ Write-Log "Waiting 3 seconds for Kafka processing..." -Color Yellow
 Start-Sleep -Seconds 3
 
 # Check Kafka topic offset (messages are in Avro format, can't read with console-consumer)
-$kafkaOffset = docker exec kafka-dev kafka-run-class kafka.tools.GetOffsetShell --broker-list localhost:9092 --topic message-events 2>$null
+$kafkaOffset = docker exec kafka kafka-run-class kafka.tools.GetOffsetShell --broker-list localhost:9092 --topic message-events 2>$null
 if ($kafkaOffset -match ":(\d+)$") {
     $messageCount = $matches[1]
     Write-Log "[OK] Kafka topic 'message-events' has $messageCount messages (Avro format)" -Color Green
@@ -178,7 +180,7 @@ if ($kafkaOffset -match ":(\d+)$") {
 Write-Step "8/8" "VERIFY MONGODB PERSISTENCE"
 
 $mongoQuery = "db.messages.findOne({messageId: '$messageId'}, {messageText: 1, fileMetadata: 1, status: 1, messageId: 1, _id: 0})"
-$mongoDoc = docker exec mongodb-dev mongosh chat --quiet --eval $mongoQuery 2>$null
+$mongoDoc = docker exec mongodb-primary mongosh chat --quiet --eval $mongoQuery 2>$null
 if ($mongoDoc -notmatch "null" -and $mongoDoc -ne "") {
     Write-Log "[OK] Message persisted in MongoDB" -Color Green
     Write-Log $mongoDoc -Color Gray
@@ -188,7 +190,7 @@ if ($mongoDoc -notmatch "null" -and $mongoDoc -ne "") {
 
 # Verify FileMetadata collection
 $fileQuery = "db.file_metadata.findOne({file_id: '$fileId'}, {filename: 1, size_bytes: 1, upload_status: 1, _id: 0})"
-$fileDoc = docker exec mongodb-dev mongosh chat --quiet --eval $fileQuery 2>$null
+$fileDoc = docker exec mongodb-primary mongosh chat --quiet --eval $fileQuery 2>$null
 if ($fileDoc -notmatch "null" -and $fileDoc -ne "") {
     Write-Log "[OK] FileMetadata persisted in MongoDB" -Color Green
     Write-Log $fileDoc -Color Gray

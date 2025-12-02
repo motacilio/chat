@@ -85,27 +85,61 @@ public class ConversationServiceImpl extends ConversationServiceGrpc.Conversatio
             StreamObserver<CreateConversationResponse> responseObserver) {
         
         try {
-            // Extract participants
+            // Extract participants and type
             List<String> participantIds = request.getParticipantIdsList();
+            com.chat.grpc.v1.ConversationType requestType = request.getType();
             
-            // Validate: must be exactly 2 participants for PRIVATE conversations
-            if (participantIds.size() != 2) {
+            Conversation conversation;
+            
+            // Handle PRIVATE vs GROUP conversation creation
+            if (requestType == com.chat.grpc.v1.ConversationType.PRIVATE) {
+                // Validate: must be exactly 2 participants for PRIVATE conversations
+                if (participantIds.size() != 2) {
+                    responseObserver.onError(Status.INVALID_ARGUMENT
+                            .withDescription("PRIVATE conversations require exactly 2 participants")
+                            .asRuntimeException());
+                    return;
+                }
+                
+                String participant1 = participantIds.get(0);
+                String participant2 = participantIds.get(1);
+                
+                // TODO: Extract creatorId from gRPC metadata (JWT claims)
+                // For now, use participant1 as creator
+                String creatorId = participant1;
+                
+                // Create private conversation via service layer
+                conversation = conversationService.createConversation(participant1, participant2, creatorId);
+                
+            } else if (requestType == com.chat.grpc.v1.ConversationType.GROUP) {
+                // T062: Group conversation creation
+                
+                // Validate: must have 2-100 participants for GROUP
+                if (participantIds.size() < 2) {
+                    responseObserver.onError(Status.INVALID_ARGUMENT
+                            .withDescription("GROUP conversations require at least 2 participants")
+                            .asRuntimeException());
+                    return;
+                }
+                
+                // TODO: Extract creatorId from gRPC metadata (JWT claims)
+                // For now, use first participant as creator
+                String creatorId = participantIds.get(0);
+                
+                // Create group conversation via service layer (T062)
+                conversation = conversationService.createGroupConversation(participantIds, creatorId);
+                
+            } else {
                 responseObserver.onError(Status.INVALID_ARGUMENT
-                        .withDescription("PRIVATE conversations require exactly 2 participants")
+                        .withDescription("Invalid conversation type")
                         .asRuntimeException());
                 return;
             }
             
-            String participant1 = participantIds.get(0);
-            String participant2 = participantIds.get(1);
-            
-            // Create conversation via service layer (handles validation, persistence, logging)
-            Conversation conversation = conversationService.createConversation(participant1, participant2);
-            
             // Map entity to protobuf response
             CreateConversationResponse response = CreateConversationResponse.newBuilder()
                     .setConversationId(conversation.getConversationId())
-                    .setType(com.chat.grpc.v1.ConversationType.PRIVATE) // Map from ConversationType enum
+                    .setType(mapConversationType(conversation.getType()))
                     .addAllParticipantIds(conversation.getParticipants())
                     .setCreatedAt(toProtobufTimestamp(conversation.getCreatedAt()))
                     .build();
@@ -120,6 +154,134 @@ public class ConversationServiceImpl extends ConversationServiceGrpc.Conversatio
         } catch (Exception e) {
             // Unexpected errors handled by global exception handler
             logger.error("Error creating conversation", e);
+            responseObserver.onError(exceptionHandler.handleGenericException((RuntimeException)e));
+        }
+    }
+    
+    /**
+     * AddMember gRPC endpoint (T066 - User Story 5).
+     * 
+     * Adds a new member to a group conversation.
+     * Only admins can add members per FR-017.
+     * 
+     * Flow:
+     * 1. Extract conversation_id, user_id, and added_by from request
+     * 2. Validate request (valid UUIDs)
+     * 3. Call ConversationService.addMember (handles authorization & capacity checks)
+     * 4. Retrieve updated conversation
+     * 5. Return updated participant list
+     * 
+     * Error Handling:
+     * - INVALID_ARGUMENT: Invalid UUIDs, member already in group, capacity reached
+     * - PERMISSION_DENIED: Requester is not admin
+     * - NOT_FOUND: Conversation not found
+     * 
+     * @param request  AddMemberRequest from client
+     * @param responseObserver gRPC response stream
+     */
+    @Override
+    public void addMember(
+            AddMemberRequest request,
+            StreamObserver<AddMemberResponse> responseObserver) {
+        
+        try {
+            String conversationId = request.getConversationId();
+            String userId = request.getUserId();
+            String addedBy = request.getAddedBy();
+            
+            // Add member via service layer (handles validation, authorization, capacity checks)
+            conversationService.addMember(conversationId, userId, addedBy);
+            
+            // Retrieve updated conversation
+            Conversation conversation = conversationRepository.findByConversationId(conversationId)
+                    .orElseThrow(() -> new IllegalArgumentException("Conversation not found: " + conversationId));
+            
+            // Build response with updated participant list
+            AddMemberResponse response = AddMemberResponse.newBuilder()
+                    .setConversationId(conversationId)
+                    .addAllParticipantIds(conversation.getParticipants())
+                    .build();
+            
+            responseObserver.onNext(response);
+            responseObserver.onCompleted();
+            
+        } catch (SecurityException e) {
+            // Authorization errors mapped to PERMISSION_DENIED status
+            logger.warn("Unauthorized add member request: {}", e.getMessage());
+            responseObserver.onError(Status.PERMISSION_DENIED
+                    .withDescription(e.getMessage())
+                    .asRuntimeException());
+        } catch (IllegalArgumentException e) {
+            // Validation errors mapped to INVALID_ARGUMENT status
+            logger.warn("Invalid add member request: {}", e.getMessage());
+            responseObserver.onError(exceptionHandler.handleIllegalArgument(e));
+        } catch (Exception e) {
+            // Unexpected errors handled by global exception handler
+            logger.error("Error adding member", e);
+            responseObserver.onError(exceptionHandler.handleGenericException((RuntimeException)e));
+        }
+    }
+    
+    /**
+     * RemoveMember gRPC endpoint (T067 - User Story 5).
+     * 
+     * Removes a member from a group conversation.
+     * Only admins can remove members per FR-017.
+     * 
+     * Flow:
+     * 1. Extract conversation_id, user_id, and removed_by from request
+     * 2. Validate request (valid UUIDs)
+     * 3. Call ConversationService.removeMember (handles authorization checks)
+     * 4. Retrieve updated conversation
+     * 5. Return updated participant list
+     * 
+     * Error Handling:
+     * - INVALID_ARGUMENT: Invalid UUIDs, user not in group, cannot remove last admin
+     * - PERMISSION_DENIED: Requester is not admin
+     * - NOT_FOUND: Conversation not found
+     * 
+     * @param request  RemoveMemberRequest from client
+     * @param responseObserver gRPC response stream
+     */
+    @Override
+    public void removeMember(
+            RemoveMemberRequest request,
+            StreamObserver<RemoveMemberResponse> responseObserver) {
+        
+        try {
+            String conversationId = request.getConversationId();
+            String userId = request.getUserId();
+            String removedBy = request.getRemovedBy();
+            
+            // Remove member via service layer (handles validation, authorization)
+            conversationService.removeMember(conversationId, userId, removedBy);
+            
+            // Retrieve updated conversation
+            Conversation conversation = conversationRepository.findByConversationId(conversationId)
+                    .orElseThrow(() -> new IllegalArgumentException("Conversation not found: " + conversationId));
+            
+            // Build response with updated participant list
+            RemoveMemberResponse response = RemoveMemberResponse.newBuilder()
+                    .setConversationId(conversationId)
+                    .addAllParticipantIds(conversation.getParticipants())
+                    .build();
+            
+            responseObserver.onNext(response);
+            responseObserver.onCompleted();
+            
+        } catch (SecurityException e) {
+            // Authorization errors mapped to PERMISSION_DENIED status
+            logger.warn("Unauthorized remove member request: {}", e.getMessage());
+            responseObserver.onError(Status.PERMISSION_DENIED
+                    .withDescription(e.getMessage())
+                    .asRuntimeException());
+        } catch (IllegalArgumentException e) {
+            // Validation errors mapped to INVALID_ARGUMENT status
+            logger.warn("Invalid remove member request: {}", e.getMessage());
+            responseObserver.onError(exceptionHandler.handleIllegalArgument(e));
+        } catch (Exception e) {
+            // Unexpected errors handled by global exception handler
+            logger.error("Error removing member", e);
             responseObserver.onError(exceptionHandler.handleGenericException((RuntimeException)e));
         }
     }

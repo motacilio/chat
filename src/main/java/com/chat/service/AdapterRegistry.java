@@ -81,23 +81,21 @@ public class AdapterRegistry {
      * Educational Deep Dive - How Spring Autowiring Works:
      * 
      * 1. Spring scans classpath for @Component/@Service classes
-     * 2. Finds 3 classes implementing PlatformAdapter:
+     * 2. Finds 2 classes implementing PlatformAdapter:
      *    - WhatsAppMockAdapter with @Component("whatsappAdapter")
      *    - InstagramMockAdapter with @Component("instagramAdapter")
-     *    - TelegramBotAdapter with @Component("telegramAdapter") [future]
      * 
      * 3. Creates singleton instances of each adapter
      * 
-     * 4. When constructing AdapterRegistry, Spring sees 3 PlatformAdapter parameters:
+     * 4. When constructing AdapterRegistry, Spring sees 2 PlatformAdapter parameters:
      *    - @Qualifier("whatsappAdapter") → injects WhatsAppMockAdapter instance
      *    - @Qualifier("instagramAdapter") → injects InstagramMockAdapter instance
-     *    - @Qualifier("telegramAdapter") → injects TelegramBotAdapter instance
      * 
      * 5. Constructor populates adapterMap with Platform enum → adapter mappings
      * 
      * Why @Qualifier?
-     * - Without it: Spring sees 3 beans of type PlatformAdapter and throws ambiguity error
-     *   "expected single matching bean but found 3: whatsappAdapter, instagramAdapter, telegramAdapter"
+     * - Without it: Spring sees 2 beans of type PlatformAdapter and throws ambiguity error
+     *   "expected single matching bean but found 2: whatsappAdapter, instagramAdapter"
      * - With it: Spring knows EXACTLY which bean to inject for each parameter
      * 
      * Alternative Approach (NOT recommended):
@@ -110,17 +108,15 @@ public class AdapterRegistry {
      * <code>
      * PlatformAdapter mockWhatsApp = mock(PlatformAdapter.class);
      * PlatformAdapter mockInstagram = mock(PlatformAdapter.class);
-     * AdapterRegistry registry = new AdapterRegistry(mockWhatsApp, mockInstagram, null);
+     * AdapterRegistry registry = new AdapterRegistry(mockWhatsApp, mockInstagram);
      * </code>
      * 
      * @param whatsappAdapter WhatsApp adapter instance (injected by Spring via @Qualifier)
      * @param instagramAdapter Instagram adapter instance (injected by Spring via @Qualifier)
-     * @param telegramAdapter Telegram adapter instance (injected by Spring via @Qualifier)
      */
     public AdapterRegistry(
             @Qualifier("whatsappAdapter") PlatformAdapter whatsappAdapter,
-            @Qualifier("instagramAdapter") PlatformAdapter instagramAdapter,
-            @Qualifier("telegramAdapter") PlatformAdapter telegramAdapter) {
+            @Qualifier("instagramAdapter") PlatformAdapter instagramAdapter) {
         
         // Initialize EnumMap with Platform enum class (tells EnumMap what enum type to use)
         this.adapterMap = new EnumMap<>(Platform.class);
@@ -129,7 +125,6 @@ public class AdapterRegistry {
         // Educational Note: This mapping is done ONCE at startup, not on every lookup
         adapterMap.put(Platform.WHATSAPP, whatsappAdapter);
         adapterMap.put(Platform.INSTAGRAM, instagramAdapter);
-        adapterMap.put(Platform.TELEGRAM, telegramAdapter);
         
         logger.info("AdapterRegistry initialized with {} platform adapters", adapterMap.size());
         logger.debug("Registered platforms: {}", adapterMap.keySet());
@@ -225,7 +220,7 @@ public class AdapterRegistry {
      * expose this via Spring Boot Actuator health endpoint to verify all expected
      * adapters are registered at startup.
      * 
-     * @return Number of registered platform adapters (expected: 3)
+     * @return Number of registered platform adapters (expected: 2)
      */
     public int getAdapterCount() {
         return adapterMap.size();

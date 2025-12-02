@@ -28,14 +28,14 @@ Based on plan.md project structure:
 
 **Purpose**: Project initialization and basic structure required before any implementation can begin
 
-- [ ] T001 Configure Maven dependencies in pom.xml (Spring Boot 3.2.5, gRPC 1.64.0, Protobuf 3.25.3, Spring Kafka, Spring Data MongoDB, Spring Security OAuth2)
-- [ ] T002 [P] Configure Protobuf compiler plugin in pom.xml (protobuf-maven-plugin for Java generation from .proto files)
-- [ ] T003 [P] Create Spring Boot main application class in src/main/java/com/chat/ChatApiApplication.java
-- [ ] T004 [P] Configure application.yml with profile-based settings (dev, docker, test) in src/main/resources/
-- [ ] T005 Create Docker Compose configuration in docker-compose.yml (Kafka, Zookeeper, MongoDB, Kafka UI per quickstart.md)
-- [ ] T006 [P] Configure Dockerfile for Chat API service container
-- [ ] T007 [P] Create .gitignore with Java/Maven/IntelliJ patterns
-- [ ] T008 [P] Configure logging patterns and levels in src/main/resources/logback-spring.xml (JSON structured logging per NFR-017)
+- [X] T001 Configure Maven dependencies in pom.xml (Spring Boot 3.2.5, gRPC 1.64.0, Protobuf 3.25.3, Spring Kafka, Spring Data MongoDB, Spring Security OAuth2)
+- [X] T002 [P] Configure Protobuf compiler plugin in pom.xml (protobuf-maven-plugin for Java generation from .proto files)
+- [X] T003 [P] Create Spring Boot main application class in src/main/java/com/chat/ChatApiApplication.java
+- [X] T004 [P] Configure application.yml with profile-based settings (dev, docker, test) in src/main/resources/
+- [X] T005 Create Docker Compose configuration in docker-compose.yml (Kafka, Zookeeper, MongoDB, Kafka UI per quickstart.md)
+- [X] T006 [P] Configure Dockerfile for Chat API service container
+- [X] T007 [P] Create .gitignore with Java/Maven/IntelliJ patterns
+- [X] T008 [P] Configure logging patterns and levels in src/main/resources/logback-spring.xml (JSON structured logging per NFR-017)
 
 ---
 
@@ -47,39 +47,39 @@ Based on plan.md project structure:
 
 ### Infrastructure Configuration
 
-- [ ] T009 Configure MongoDB connection in src/main/java/com/chat/config/MongoConfig.java (replica set, write concern majority per FR-029)
-- [ ] T010 [P] Configure Kafka producer in src/main/java/com/chat/config/KafkaProducerConfig.java (JSON serialization, acks=all per research.md Decision 2)
-- [ ] T011 [P] Configure Kafka consumer in src/main/java/com/chat/config/KafkaConsumerConfig.java (manual offset commits, consumer group settings per research.md Decision 2)
-- [ ] T012 [P] Configure gRPC server in src/main/java/com/chat/config/GrpcServerConfig.java (port 9090, enable reflection per quickstart.md)
-- [ ] T013 [P] Configure Spring Security OAuth2 resource server in src/main/java/com/chat/config/SecurityConfig.java (JWT validation, extract user_id from claims)
+- [X] T009 Configure MongoDB connection in src/main/java/com/chat/config/MongoConfig.java (replica set, write concern majority per FR-029)
+- [X] T010 [P] Configure Kafka producer in src/main/java/com/chat/config/KafkaProducerConfig.java (JSON serialization, acks=all per research.md Decision 2)
+- [X] T011 [P] Configure Kafka consumer in src/main/java/com/chat/config/KafkaConsumerConfig.java (manual offset commits, consumer group settings per research.md Decision 2)
+- [X] T012 [P] Configure gRPC server in src/main/java/com/chat/config/GrpcServerConfig.java (port 9090, enable reflection per quickstart.md)
+- [X] T013 [P] Configure Spring Security OAuth2 resource server in src/main/java/com/chat/config/SecurityConfig.java (JWT validation, extract user_id from claims)
 
 ### Domain Models (Foundational Entities)
 
-- [ ] T014 [P] Create User entity in src/main/java/com/chat/model/User.java (user_id UUID, username, email, created_at per data-model.md Entity 1)
-- [ ] T015 [P] Create Conversation entity in src/main/java/com/chat/model/Conversation.java (conversation_id UUID, type enum, participants list, timestamps per data-model.md Entity 2)
-- [ ] T016 [P] Create Message entity in src/main/java/com/chat/model/Message.java (message_id UUID, conversation_id, sender_id, message_text, timestamp, sequence_number per data-model.md Entity 3)
-- [ ] T017 [P] Create MessageStateTransition embedded entity in src/main/java/com/chat/model/MessageStateTransition.java (state enum, timestamp, recipient_id per data-model.md Entity 4)
-- [ ] T018 [P] Create MessageStatus enum in src/main/java/com/chat/model/MessageStatus.java (SENT, DELIVERED, READ per FR-007)
-- [ ] T019 [P] Create ConversationType enum in src/main/java/com/chat/model/ConversationType.java (PRIVATE, GROUP per FR-012)
+- [X] T014 [P] Create User entity in src/main/java/com/chat/model/User.java (user_id UUID, username, email, created_at per data-model.md Entity 1)
+- [X] T015 [P] Create Conversation entity in src/main/java/com/chat/model/Conversation.java (conversation_id UUID, type enum, participants list, timestamps per data-model.md Entity 2)
+- [X] T016 [P] Create Message entity in src/main/java/com/chat/model/Message.java (message_id UUID, conversation_id, sender_id, message_text, timestamp, sequence_number per data-model.md Entity 3)
+- [X] T017 [P] Create MessageStateTransition embedded entity in src/main/java/com/chat/model/MessageStateTransition.java (state enum, timestamp, recipient_id per data-model.md Entity 4)
+- [X] T018 [P] Create MessageStatus enum in src/main/java/com/chat/model/MessageStatus.java (SENT, DELIVERED, READ per FR-007)
+- [X] T019 [P] Create ConversationType enum in src/main/java/com/chat/model/ConversationType.java (PRIVATE, GROUP per FR-012)
 
 ### MongoDB Repositories
 
-- [ ] T020 [P] Create UserRepository in src/main/java/com/chat/repository/UserRepository.java (findByUserId, findByUsername, findByEmail methods with indexes per data-model.md Entity 1)
-- [ ] T021 [P] Create ConversationRepository in src/main/java/com/chat/repository/ConversationRepository.java (findByConversationId, findByParticipantsContainingOrderByLastMessageAtDesc with compound indexes per data-model.md Entity 2)
-- [ ] T022 [P] Create MessageRepository in src/main/java/com/chat/repository/MessageRepository.java (findByMessageId, findByConversationIdOrderByTimestampDesc, findByConversationIdOrderBySequenceNumber with indexes per data-model.md Entity 3)
+- [X] T020 [P] Create UserRepository in src/main/java/com/chat/repository/UserRepository.java (findByUserId, findByUsername, findByEmail methods with indexes per data-model.md Entity 1)
+- [X] T021 [P] Create ConversationRepository in src/main/java/com/chat/repository/ConversationRepository.java (findByConversationId, findByParticipantsContainingOrderByLastMessageAtDesc with compound indexes per data-model.md Entity 2)
+- [X] T022 [P] Create MessageRepository in src/main/java/com/chat/repository/MessageRepository.java (findByMessageId, findByConversationIdOrderByTimestampDesc, findByConversationIdOrderBySequenceNumber with indexes per data-model.md Entity 3)
 
 ### Protobuf Contracts
 
-- [ ] T023 [P] Copy common_types.proto to src/main/proto/common_types.proto (MessageStatus, ConversationType, UserInfo, MessageStateTransition, PaginationInfo per contracts/)
-- [ ] T024 [P] Copy chat_service.proto to src/main/proto/chat_service.proto (SendMessage, StreamMessages, GetMessageStatus, MarkMessageAsRead RPCs per contracts/)
-- [ ] T025 [P] Copy conversation_service.proto to src/main/proto/conversation_service.proto (CreateConversation, ListConversations, GetConversation, GetConversationHistory RPCs per contracts/)
-- [ ] T026 Compile Protobuf definitions to generate Java classes (mvn clean compile generates gRPC stubs in target/generated-sources/protobuf/)
+- [X] T023 [P] Copy common_types.proto to src/main/proto/common_types.proto (MessageStatus, ConversationType, UserInfo, MessageStateTransition, PaginationInfo per contracts/)
+- [X] T024 [P] Copy chat_service.proto to src/main/proto/chat_service.proto (SendMessage, StreamMessages, GetMessageStatus, MarkMessageAsRead RPCs per contracts/)
+- [X] T025 [P] Copy conversation_service.proto to src/main/proto/conversation_service.proto (CreateConversation, ListConversations, GetConversation, GetConversationHistory RPCs per contracts/)
+- [X] T026 Compile Protobuf definitions to generate Java classes (mvn clean compile generates gRPC stubs in target/generated-sources/protobuf/)
 
 ### Error Handling & Utilities
 
-- [ ] T027 [P] Create global gRPC exception handler in src/main/java/com/chat/grpc/GlobalExceptionHandler.java (maps domain exceptions to gRPC Status codes with ErrorDetail)
-- [ ] T028 [P] Create UUID validator utility in src/main/java/com/chat/util/UuidValidator.java (validates message_id, conversation_id, user_id format per FR-006)
-- [ ] T029 [P] Create authentication interceptor in src/main/java/com/chat/security/AuthenticationInterceptor.java (extracts user_id from JWT metadata, validates token per FR-002)
+- [X] T027 [P] Create global gRPC exception handler in src/main/java/com/chat/grpc/GlobalExceptionHandler.java (maps domain exceptions to gRPC Status codes with ErrorDetail)
+- [X] T028 [P] Create UUID validator utility in src/main/java/com/chat/util/UuidValidator.java (validates message_id, conversation_id, user_id format per FR-006)
+- [X] T029 [P] Create authentication interceptor in src/main/java/com/chat/security/AuthenticationInterceptor.java (extracts user_id from JWT metadata, validates token per FR-002)
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
@@ -155,16 +155,16 @@ Based on plan.md project structure:
 
 **Independent Test**: Initiate file upload, upload chunks with interruption, resume from offset, complete upload, download file via pre-signed URL
 
-### Implementation for User Story 4 (DEFERRED)
+### Implementation for User Story 4 (COMPLETED ✅)
 
-- [ ] T053 [P] [US4] Create FileMetadata embedded entity in src/main/java/com/chat/model/FileMetadata.java (file_id UUID, filename, size_bytes, mime_type, storage_url per data-model.md Entity 5)
-- [ ] T054 [P] [US4] Update Message entity to support FileMetadata as alternative to message_text (add oneof pattern equivalent in Java)
-- [ ] T055 [P] [US4] Configure MinIO client in src/main/java/com/chat/config/MinioConfig.java (connection settings, bucket configuration per quickstart.md)
-- [ ] T056 [P] [US4] Create FileStorageService in src/main/java/com/chat/service/FileStorageService.java (initiate upload, store chunk, complete upload, generate pre-signed download URL using tus protocol per research.md Decision 4)
-- [ ] T057 [US4] Implement file upload endpoints (POST /v1/files/initiate, PATCH /upload_url, POST /v1/files/complete per spec.md API contracts)
-- [ ] T058 [US4] Implement file download endpoint (GET /v1/files/{file_id}/download returns pre-signed URL valid 1 hour per FR-023)
-- [ ] T059 [US4] Add file size validation in FileStorageService.initiateUpload (reject files >2 GB per FR-024)
-- [ ] T060 [US4] Add checksum validation in FileStorageService.completeUpload (MD5 verification per quickstart.md example)
+- [X] T053 [P] [US4] Create FileMetadata embedded entity in src/main/java/com/chat/model/FileMetadata.java (file_id UUID, filename, size_bytes, mime_type, storage_url per data-model.md Entity 5)
+- [X] T054 [P] [US4] Update Message entity to support FileMetadata as alternative to message_text (add oneof pattern equivalent in Java)
+- [X] T055 [P] [US4] Configure MinIO client in src/main/java/com/chat/config/MinioConfig.java (connection settings, bucket configuration per quickstart.md)
+- [X] T056 [P] [US4] Create FileStorageService in src/main/java/com/chat/service/FileStorageService.java (initiate upload, store chunk, complete upload, generate pre-signed download URL using tus protocol per research.md Decision 4)
+- [X] T057 [US4] Implement file upload endpoints (POST /v1/files/initiate, PATCH /upload_url, POST /v1/files/complete per spec.md API contracts)
+- [X] T058 [US4] Implement file download endpoint (GET /v1/files/{file_id}/download returns pre-signed URL valid 1 hour per FR-023)
+- [X] T059 [US4] Add file size validation in FileStorageService.initiateUpload (reject files >2 GB per FR-024)
+- [X] T060 [US4] Add checksum validation in FileStorageService.completeUpload (MD5 verification per quickstart.md example)
 
 ---
 
@@ -178,15 +178,15 @@ Based on plan.md project structure:
 
 ### Implementation for User Story 5 (DEFERRED)
 
-- [ ] T061 [P] [US5] Update Conversation entity in src/main/java/com/chat/model/Conversation.java (add admin_user_ids list, creator_id field per data-model.md Entity 2)
-- [ ] T062 [P] [US5] Update ConversationService.createConversation to support GROUP type (validate n participants, set creator as initial admin per FR-016)
-- [ ] T063 [P] [US5] Add addMember method to ConversationService in src/main/java/com/chat/service/ConversationService.java (validate requester is admin, update participants list per FR-017)
-- [ ] T064 [P] [US5] Add removeMember method to ConversationService in src/main/java/com/chat/service/ConversationService.java (validate requester is admin, update participants list per FR-017)
-- [ ] T065 [P] [US5] Add promoteToAdmin method to ConversationService in src/main/java/com/chat/service/ConversationService.java (validate requester is admin, update admin_user_ids list per FR-018)
-- [ ] T066 [US5] Implement ConversationServiceImpl.AddMember in src/main/java/com/chat/grpc/ConversationServiceImpl.java (per conversation_service.proto)
-- [ ] T067 [US5] Implement ConversationServiceImpl.RemoveMember in src/main/java/com/chat/grpc/ConversationServiceImpl.java (per conversation_service.proto)
-- [ ] T068 [US5] Update MessageDeliveryWorker to support fan-out delivery for group messages (track per-recipient DELIVERED state per FR-019)
-- [ ] T069 [US5] Add authorization checks for group operations (only admins can add/remove members per FR-017)
+- [X] T061 [P] [US5] Update Conversation entity in src/main/java/com/chat/model/Conversation.java (add admin_user_ids list, creator_id field per data-model.md Entity 2)
+- [X] T062 [P] [US5] Update ConversationService.createConversation to support GROUP type (validate n participants, set creator as initial admin per FR-016)
+- [X] T063 [P] [US5] Add addMember method to ConversationService in src/main/java/com/chat/service/ConversationService.java (validate requester is admin, update participants list per FR-017)
+- [X] T064 [P] [US5] Add removeMember method to ConversationService in src/main/java/com/chat/service/ConversationService.java (validate requester is admin, update participants list per FR-017)
+- [X] T065 [P] [US5] Add promoteToAdmin method to ConversationService in src/main/java/com/chat/service/ConversationService.java (validate requester is admin, update admin_user_ids list per FR-018)
+- [X] T066 [US5] Implement ConversationServiceImpl.AddMember in src/main/java/com/chat/grpc/ConversationServiceImpl.java (per conversation_service.proto)
+- [X] T067 [US5] Implement ConversationServiceImpl.RemoveMember in src/main/java/com/chat/grpc/ConversationServiceImpl.java (per conversation_service.proto)
+- [X] T068 [US5] Update MessageDeliveryWorker to support fan-out delivery for group messages (track per-recipient DELIVERED state per FR-019)
+- [X] T069 [US5] Add authorization checks for group operations (only admins can add/remove members per FR-017)
 
 ---
 
@@ -203,31 +203,31 @@ Based on plan.md project structure:
 - [X] T070 [P] [US6] Create LinkedAccount entity in src/main/java/com/chat/model/LinkedAccount.java (user_id, platform enum, external_id per data-model.md Entity 7)
 - [X] T071 [P] [US6] Create LinkedAccountRepository in src/main/java/com/chat/repository/LinkedAccountRepository.java (findByUserIdAndPlatform, findByPlatformAndExternalId with indexes)
 - [X] T072 [P] [US6] Create PlatformAdapter interface in src/main/java/com/chat/adapter/PlatformAdapter.java (connect, sendMessage, sendFile, webhookHandler methods per research.md Decision 5)
-- [ ] T073 [P] [US6] Implement TelegramBotAdapter in src/main/java/com/chat/adapter/TelegramBotAdapter.java (real integration using telegrambots library per research.md Decision 5)
+- [X] T073 [P] [US6] Implement TelegramBotAdapter in src/main/java/com/chat/adapter/TelegramBotAdapter.java (real integration using telegrambots library per research.md Decision 5)
 - [X] T074 [P] [US6] Implement WhatsAppMockAdapter in src/main/java/com/chat/adapter/WhatsAppMockAdapter.java (95% success rate simulation, random 100-300ms latency via Thread.sleep, throw connection_timeout/rate_limit_exceeded/invalid_recipient errors per FR-039, validate E.164 phone format per Session 2025-11-24 Q5)
 - [X] T075 [P] [US6] Implement InstagramMockAdapter in src/main/java/com/chat/adapter/InstagramMockAdapter.java (90% success rate simulation, random 150-400ms latency via Thread.sleep, throw connection_timeout/rate_limit_exceeded/invalid_recipient errors per FR-039, validate @username pattern per Session 2025-11-24 Q5)
 - [X] T076 [P] [US6] Create AdapterRegistry in src/main/java/com/chat/service/AdapterRegistry.java (Spring component registry with @Qualifier injection for platform selection)
-- [ ] T077 [US6] Create PlatformRoutingService in src/main/java/com/chat/service/PlatformRoutingService.java (route message to selected platforms, handle adapter failures with circuit breaker per FR-038)
-- [ ] T078 [US6] Update MessageService to support platform routing (add channels parameter, call PlatformRoutingService per FR-036)
-- [ ] T079 [US6] Implement webhook endpoint for Telegram in src/main/java/com/chat/controller/TelegramWebhookController.java (parse incoming messages, route to internal recipients per FR-037)
-- [ ] T080 [US6] Add webhook signature validation in TelegramWebhookController (verify X-Telegram-Bot-Api-Secret-Token per research.md Decision 5)
+- [X] T077 [US6] Create PlatformRoutingService in src/main/java/com/chat/service/PlatformRoutingService.java (route message to selected platforms, handle adapter failures with circuit breaker per FR-038)
+- [X] T078 [US6] Update MessageService to support platform routing (add channels parameter, call PlatformRoutingService per FR-036)
+- [X] T079 [US6] Implement webhook endpoint for Telegram in src/main/java/com/chat/controller/TelegramWebhookController.java (parse incoming messages, route to internal recipients per FR-037)
+- [X] T080 [US6] Add webhook signature validation in TelegramWebhookController (verify X-Telegram-Bot-Api-Secret-Token per research.md Decision 5)
 
 ---
 
-## Phase 9: Observability & Monitoring (Priority: P2)
+## Phase 9: Observability & Monitoring (Priority: P2) ✅ COMPLETED
 
 **Purpose**: Implement comprehensive observability stack (Prometheus, Grafana, Jaeger) for production monitoring
 
-**Note**: Observability is NFR-017 through NFR-021, implemented after MVP core functionality is stable
+**Note**: Observability is NFR-017 through NFR-021, implemented in weeks 7-8 per RELATORIO-MONITORAMENTO.md
 
-- [ ] T081 [P] Configure Prometheus metrics exporter in src/main/java/com/chat/config/MetricsConfig.java (Spring Boot Actuator with Micrometer)
-- [ ] T082 [P] Add custom metrics in MessageService (messages_sent_total counter, message_latency_seconds histogram per NFR-018)
-- [ ] T083 [P] Add custom metrics in MessageDeliveryWorker (kafka_consumer_lag gauge, messages_processed_total counter per NFR-018)
-- [ ] T084 [P] Configure Jaeger distributed tracing in src/main/java/com/chat/config/TracingConfig.java (OpenTelemetry integration for request flows per NFR-019)
-- [ ] T085 [P] Add Jaeger tracing spans in gRPC services (trace message submission → Kafka publish → MongoDB persistence flow)
-- [ ] T086 Create Grafana dashboard configuration in docs/observability/grafana-dashboard.json (messages/second, latency p95, error rates, Kafka consumer lag per NFR-020)
-- [ ] T087 [P] Configure Grafana alerting rules in docs/observability/grafana-alerts.yml (alert when p95 latency >100ms or error rate >1% per NFR-021)
-- [ ] T088 Update docker-compose.yml to add Prometheus, Grafana, Jaeger containers (per quickstart.md extension)
+- [X] T081 [P] Configure Prometheus metrics exporter in src/main/java/com/chat/config/MetricsConfig.java (Spring Boot Actuator with Micrometer)
+- [X] T082 [P] Add custom metrics in MessageService (messages_sent_total counter, message_latency_seconds histogram per NFR-018)
+- [X] T083 [P] Add custom metrics in MessageDeliveryWorker (kafka_consumer_lag gauge, messages_processed_total counter per NFR-018)
+- [X] T084 [P] Configure Jaeger distributed tracing in src/main/java/com/chat/config/TracingConfig.java (OpenTelemetry integration for request flows per NFR-019)
+- [X] T085 [P] Add Jaeger tracing spans in gRPC services (trace message submission → Kafka publish → MongoDB persistence flow)
+- [X] T086 Create Grafana dashboard configuration in docs/observability/grafana-dashboard.json (messages/second, latency p95, error rates, Kafka consumer lag per NFR-020)
+- [X] T087 [P] Configure Grafana alerting rules in docs/observability/grafana-alerts.yml (alert when p95 latency >100ms or error rate >1% per NFR-021)
+- [X] T088 Update docker-compose.yml to add Prometheus, Grafana, Jaeger containers (per quickstart.md extension)
 
 ---
 
@@ -250,18 +250,18 @@ Based on plan.md project structure:
 
 **Purpose**: Improvements that affect multiple user stories and final MVP refinement
 
-- [ ] T095 [P] Create comprehensive README.md in repository root (project overview, quickstart, architecture links, contribution guidelines)
-- [ ] T096 [P] Create architecture documentation in docs/architecture/system-overview.md (high-level diagram, component responsibilities, message flow)
-- [ ] T097 [P] Create deployment runbook in docs/runbooks/deployment.md (Kubernetes deployment steps, environment variables, health checks)
-- [ ] T098 [P] Create troubleshooting guide in docs/runbooks/troubleshooting.md (common errors, log analysis, Kafka/MongoDB debug commands)
-- [ ] T099 Add JavaDoc comments to all public methods in service layer (explain distributed systems concepts per Constitution Principle I)
-- [ ] T100 Add README files to each package (src/main/java/com/chat/grpc/README.md explains gRPC patterns, src/main/java/com/chat/worker/README.md explains Kafka consumer patterns)
-- [ ] T101 Review and optimize MongoDB indexes (analyze query patterns, add missing indexes, remove unused indexes per NFR-014)
-- [ ] T102 Review and optimize Kafka consumer configurations (tune max.poll.records, fetch.min.bytes for throughput per NFR-004)
-- [ ] T103 Run performance benchmarks (measure p95 latency under 10,000 concurrent users load, verify <100ms target per NFR-003)
-- [ ] T104 Validate quickstart.md accuracy (follow quickstart steps on clean environment, update any outdated commands)
-- [ ] T105 Add security hardening (rate limiting per user_id 100 msg/min per edge case, input sanitization, SQL injection prevention)
-- [ ] T106 Create GitHub Actions CI/CD pipeline in .github/workflows/ci.yml (build, compile protobuf, run tests, Docker build)
+- [X] T095 [P] Create comprehensive README.md in repository root (project overview, quickstart, architecture links, contribution guidelines)
+- [X] T096 [P] Create architecture documentation in docs/architecture/system-overview.md (high-level diagram, component responsibilities, message flow)
+- [X] T097 [P] Create deployment runbook in docs/runbooks/deployment.md (Kubernetes deployment steps, environment variables, health checks)
+- [X] T098 [P] Create troubleshooting guide in docs/runbooks/troubleshooting.md (common errors, log analysis, Kafka/MongoDB debug commands)
+- [X] T099 Add JavaDoc comments to all public methods in service layer (explain distributed systems concepts per Constitution Principle I)
+- [X] T100 Add README files to each package (src/main/java/com/chat/grpc/README.md explains gRPC patterns, src/main/java/com/chat/worker/README.md explains Kafka consumer patterns)
+- [X] T101 Review and optimize MongoDB indexes (analyze query patterns, add missing indexes, remove unused indexes per NFR-014)
+- [X] T102 Review and optimize Kafka consumer configurations (tune max.poll.records, fetch.min.bytes for throughput per NFR-004)
+- [X] T103 Run performance benchmarks (measure p95 latency under 10,000 concurrent users load, verify <100ms target per NFR-003)
+- [X] T104 Validate quickstart.md accuracy (follow quickstart steps on clean environment, update any outdated commands)
+- [X] T105 Add security hardening (rate limiting per user_id 100 msg/min per edge case, input sanitization, SQL injection prevention)
+- [X] T106 Create GitHub Actions CI/CD pipeline in .github/workflows/ci.yml (build, compile protobuf, run tests, Docker build)
 
 ---
 

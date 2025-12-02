@@ -37,13 +37,17 @@ git checkout 001-ubiquitous-messaging-platform
 
 ### Step 2: Start Infrastructure (Docker Compose)
 
-**POC Services** (6 containers):
-- Apache Kafka (message broker)
-- Zookeeper (Kafka coordination service)
-- MongoDB (persistence)
-- MongoDB Replica Set Initializer (one-time setup)
-- Chat API (Spring Boot gRPC server)
-- Kafka UI (optional management interface)
+**Services** (10 containers):
+- **MongoDB Replica Set** (3-node cluster for high availability)
+  - mongodb-primary (port 27017)
+  - mongodb-secondary1 (port 27018)
+  - mongodb-secondary2 (port 27019)
+  - mongodb-init (one-time replica set initializer)
+- **Apache Kafka** (message broker - port 9092)
+- **Zookeeper** (Kafka coordination - port 2181)
+- **MinIO** (S3-compatible object storage - ports 9000/9001)
+- **Chat API** (Spring Boot gRPC server - ports 9090/8081)
+- **Kafka UI** (optional management interface - port 8080)
 
 ```bash
 # Start all services in background
@@ -70,8 +74,10 @@ docker-compose ps
 ```
 
 **Access UIs**:
-- Kafka UI: http://localhost:8080 (Kafka topics, consumer groups)
-- MongoDB: localhost:27017 (use MongoDB Compass)
+- **Kafka UI**: http://localhost:8080 (Kafka topics, consumer groups, message browser)
+- **MinIO Console**: http://localhost:9001 (login: minioadmin/minioadmin)
+- **MongoDB Primary**: localhost:27017 (use MongoDB Compass - connection string below)
+- **Spring Boot Actuator**: http://localhost:8081/actuator/health (health checks, metrics)
 
 ### Step 3: Build Java Application
 
@@ -176,114 +182,104 @@ grpcurl -plaintext localhost:9090 describe chat_api.v1.ChatService
 
 ---
 
-## Docker Compose Configuration
+**File**: `docker-compose.yml` (Production-Ready Configuration)
 
-**File**: `docker-compose.yml` (POC version)
+See actual file in repository root for complete configuration. Key services:
 
 ```yaml
 version: '3.8'
 
 services:
-  # MongoDB (Persistence)
-  mongodb:
+  # MongoDB Replica Set (3-node cluster)
+  mongodb-primary:
     image: mongo:7.0
-    container_name: mongodb
+    container_name: mongodb-primary
+    command: ["--replSet", "rs0", "--bind_ip_all", "--port", "27017"]
     ports:
       - "27017:27017"
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: password
-    volumes:
-      - mongodb_data:/data/db
-    command: ["--replSet", "rs0"]
     healthcheck:
-      test: ["CMD", "mongo", "--eval", "db.adminCommand('ping')"]
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # MongoDB Replica Set Initializer (one-time)
+  mongodb-secondary1:
+    image: mongo:7.0
+    container_name: mongodb-secondary1
+    ports:
+      - "27018:27017"
+    # ... (see docker-compose.yml for full config)
+
+  mongodb-secondary2:
+    image: mongo:7.0
+    container_name: mongodb-secondary2
+    ports:
+      - "27019:27017"
+    # ... (see docker-compose.yml for full config)
+
+  # Replica set initializer (runs once)
   mongodb-init:
     image: mongo:7.0
     container_name: mongodb-init
-    depends_on:
-      - mongodb
     command: >
-      bash -c "
-        sleep 10 &&
-        mongo --host mongodb:27017 -u admin -p password --authenticationDatabase admin --eval '
-          rs.initiate({
-            _id: \"rs0\",
-            members: [{ _id: 0, host: \"mongodb:27017\" }]
-          })
-        '
+      mongosh --host mongodb-primary:27017 --eval "
+      rs.initiate({
+        _id: 'rs0',
+        members: [
+          { _id: 0, host: 'mongodb-primary:27017', priority: 2 },
+          { _id: 1, host: 'mongodb-secondary1:27017', priority: 1 },
+          { _id: 2, host: 'mongodb-secondary2:27017', priority: 1 }
+        ]
+      });
       "
+    restart: "no"
 
-  # Apache Kafka (Message Broker)
+  # Kafka + Zookeeper
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
-    container_name: zookeeper
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
     ports:
       - "2181:2181"
 
   kafka:
     image: confluentinc/cp-kafka:7.5.0
-    container_name: kafka
-    depends_on:
-      - zookeeper
     ports:
       - "9092:9092"
-      - "29092:29092"
     environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-    healthcheck:
-      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      # ... (see docker-compose.yml for full config)
 
-  # Kafka UI (Optional - Management Interface)
-  kafka-ui:
-    image: provectuslabs/kafka-ui:latest
-    container_name: kafka-ui
-    depends_on:
-      - kafka
+  # MinIO (S3-compatible storage)
+  minio:
+    image: minio/minio:latest
     ports:
-      - "8080:8080"
+      - "9000:9000"  # S3 API
+      - "9001:9001"  # Console UI
     environment:
-      KAFKA_CLUSTERS_0_NAME: local
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
 
-  # Chat API (Spring Boot gRPC Server)
+  # Chat API
   chat-api:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: chat-api
     ports:
       - "9090:9090"  # gRPC
-      - "8081:8081"  # Spring Boot Actuator (health checks)
+      - "8081:8081"  # Actuator
     environment:
-      SPRING_PROFILES_ACTIVE: dev
-      MONGODB_URI: mongodb://admin:password@mongodb:27017/chat?authSource=admin&replicaSet=rs0
+      SPRING_PROFILES_ACTIVE: docker
+      MONGODB_URI: mongodb://mongodb-primary:27017,mongodb-secondary1:27017,mongodb-secondary2:27017/chat?replicaSet=rs0
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-    depends_on:
-      kafka:
-        condition: service_healthy
-      mongodb:
-        condition: service_healthy
-    restart: unless-stopped
 
-volumes:
+  # Kafka UI
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    ports:
+      - "8080:8080"
+```
+
+**See `docker-compose.yml`, `docker-compose.dev.yml`, and `docker-compose.monitoring.yml` for full configurations**umes:
   mongodb_data:
 ```
 
@@ -301,63 +297,55 @@ spring:
   # MongoDB Configuration
   data:
     mongodb:
-      uri: ${MONGODB_URI}
+**File**: `src/main/resources/application-dev.yml` (Local Development)
+
+See actual file for complete configuration. Key settings:
+
+```yaml
+spring:
+  data:
+    mongodb:
+      uri: mongodb://localhost:27017/chat
       database: chat
   
-  # Kafka Configuration
   kafka:
-    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS}
+    bootstrap-servers: localhost:9092
     consumer:
       group-id: message-consumer-group
       auto-offset-reset: earliest
       enable-auto-commit: false  # Manual offset commits for at-least-once delivery
-      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
-      properties:
-        spring.json.trusted.packages: "*"
-        max.poll.records: 10  # Prefetch limit (backpressure)
+      max.poll.records: 10  # Backpressure control
     producer:
-      key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
-      acks: all  # Wait for all replicas to acknowledge
+      acks: all  # Wait for all replicas
     listener:
-      ack-mode: manual  # Manual acknowledgment mode
+      ack-mode: manual
 
-# gRPC Server Configuration
+# MinIO Configuration (File Upload)
+minio:
+  endpoint: http://localhost:9000
+  external-endpoint: http://localhost:9000
+  access-key: minioadmin
+  secret-key: minioadmin
+  bucket-name: chat-files
+  download-url-expiration-seconds: 3600  # 1 hour
+  chunk-size-bytes: 5242880  # 5 MB chunks
+
+# gRPC Server
 grpc:
   server:
     port: 9090
-    enable-reflection: true  # Enable gRPC Server Reflection (for grpcurl)
+    enable-reflection: true
 
-# Logging Configuration
+# Logging
 logging:
   level:
     com.chat: DEBUG
     org.apache.kafka: INFO
-    io.grpc: INFO
-  pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss} - %logger{36} - %msg%n"
-
-# Actuator (Health Checks)
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health,info,metrics
-  endpoint:
-    health:
-      show-details: always
+    org.springframework.data.mongodb: DEBUG
+    io.minio: DEBUG
 ```
 
----
-
-## Running Tests
-
-### Unit Tests (Domain Logic)
-
-```bash
-# Run all unit tests
-mvn test
+**See `application-dev.yml` and `application-docker.yml` for full configurations** test
 
 # Run specific test class
 mvn test -Dtest=MessageServiceTest
@@ -392,10 +380,12 @@ mvn verify -P integration-tests
 public class MessageFlowIntegrationTest {
     
     @Container
-    static MongoDBContainer mongodb = new MongoDBContainer("mongo:7.0");
+    static MongoDBContainer mongodb = new MongoDBContainer("mongo:7.0")
+        .withExposedPorts(27017);
     
     @Container
-    static RabbitMQContainer rabbitmq = new RabbitMQContainer("rabbitmq:3.12-management");
+    static KafkaContainer kafka = new KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.5.0"))
+        .withExposedPorts(9092);
     
     @Test
     public void shouldDeliverMessageFromApiToMongoDB() {
@@ -415,7 +405,7 @@ public class MessageFlowIntegrationTest {
         // Then: Verify message persisted in MongoDB
         assertEquals(MessageStatus.SENT, response.getStatus());
         
-        // Wait for async worker processing
+        // Wait for async Kafka worker processing
         Thread.sleep(2000);
         
         // Query MongoDB directly
@@ -466,9 +456,8 @@ public void shouldHaveRequiredFieldsInSendMessageRequest() {
 sudo systemctl stop mongod  # Linux
 brew services stop mongodb-community  # macOS
 
-# Or change port in docker-compose.yml
-ports:
-  - "27018:27017"  # Use different host port
+# Or use different ports (quickstart already uses 27017, 27018, 27019)
+# See docker-compose.yml - 3 MongoDB nodes on separate ports
 ```
 
 ### Issue: "gRPC connection refused"
@@ -482,8 +471,8 @@ docker-compose logs chat-api
 
 # Look for errors like:
 # "Failed to bind to port 9090" → Port conflict
-# "MongoTimeoutException" → MongoDB not ready
-# "AmqpConnectException" → RabbitMQ not ready
+# "MongoTimeoutException" → MongoDB replica set not ready
+# "TimeoutException: Topic not present" → Kafka not ready
 
 # Restart services
 docker-compose down
@@ -500,12 +489,13 @@ docker-compose up -d
 docker ps
 
 # Increase Docker resources (Docker Desktop → Settings → Resources):
-# - Memory: 4 GB minimum
-# - CPUs: 2 cores minimum
+# - Memory: 8 GB minimum (replica set + Kafka)
+# - CPUs: 4 cores minimum
 
 # Pull required images before tests
 docker pull mongo:7.0
-docker pull rabbitmq:3.12-management
+docker pull confluentinc/cp-kafka:7.5.0
+docker pull minio/minio:latest
 ```
 
 ---
@@ -514,18 +504,29 @@ docker pull rabbitmq:3.12-management
 
 After POC is running:
 
-1. **Explore RabbitMQ Management UI**:
-   - View message queues: http://localhost:15672/#/queues
-   - Check message delivery rates
-   - Monitor worker connections
+1. **Explore Kafka UI**:
+   - View topics and messages: http://localhost:8080
+   - Check consumer groups (message-delivery-group, state-update-group)
+   - Monitor consumer lag and throughput
+   - Browse messages in `message-events`, `state-update-events`, `platform-message-events` topics
 
-2. **Query MongoDB**:
+2. **Explore MinIO Console**:
+   - View uploaded files: http://localhost:9001 (login: minioadmin/minioadmin)
+   - Check `chat-files` bucket
+   - Monitor storage usage
+
+3. **Query MongoDB**:
    ```bash
-   # Connect with MongoDB Compass: mongodb://admin:password@localhost:27017/chat?authSource=admin
-   # Or use mongo shell:
-   docker exec -it mongodb mongo -u admin -p password --authenticationDatabase admin
+   # Connect with MongoDB Compass: mongodb://localhost:27017/chat?replicaSet=rs0
+   # Or use mongosh:
+   docker exec -it mongodb-primary mongosh
    use chat
    db.messages.find().pretty()
+   db.conversations.find().pretty()
+   db.fileMetadata.find().pretty()
+   
+   # Check replica set status
+   rs.status()
    ```
 
 3. **Test Real-Time Streaming**:
@@ -540,17 +541,101 @@ After POC is running:
    grpcurl -plaintext -d '{...}' localhost:9090 chat_api.v1.ChatService/SendMessage
    ```
 
-4. **Read Architecture Documentation**:
-   - `specs/001-ubiquitous-messaging-platform/research.md` - Architectural decisions
-   - `specs/001-ubiquitous-messaging-platform/data-model.md` - MongoDB schema design
-   - `.specify/memory/constitution.md` - Development principles (TDD, hexagonal architecture, etc.)
+4. **Test File Upload**:
+   ```bash
+   # Initiate file upload
+   grpcurl -plaintext \
+     -d '{
+       "filename": "test.pdf",
+       "content_type": "application/pdf",
+       "file_size_bytes": 1048576,
+       "conversation_id": "550e8400-e29b-41d4-a716-446655440000",
+       "sender_id": "user-alice-uuid"
+     }' \
+     localhost:9090 \
+     chat_api.v1.FileService/InitiateUpload
+   
+   # Response includes upload_url (MinIO pre-signed URL) and file_id
+   # Upload file to upload_url using curl/Postman, then complete:
+   
+   grpcurl -plaintext \
+     -d '{
+       "file_id": "file-uuid-from-initiate",
+       "checksum_sha256": "computed-hash"
+     }' \
+     localhost:9090 \
+     chat_api.v1.FileService/CompleteUpload
+   ```
 
-5. **Run Full Test Suite**:
+5. **Monitor with Prometheus + Grafana** (Optional - requires `docker-compose.monitoring.yml`):
+   ```bash
+   # Start monitoring stack
+   docker-compose -f docker-compose.monitoring.yml up -d
+   
+   # Access dashboards
+   # Prometheus: http://localhost:9090/targets (check chat-api target)
+   # Grafana: http://localhost:3000 (login: admin/admin)
+   #   - Import dashboard from docs/observabilidade/grafana-dashboard-basic.json
+   #   - View metrics: messages_sent_total, kafka_consumer_lag, circuit_breaker_state
+   ```
+
+6. **Run Performance Benchmarks**:
+   ```powershell
+   # Quick test (1,000 users, 5 minutes)
+   cd scripts\load-test
+   .\run-benchmark.ps1 -Quick
+   
+   # Full benchmark (10,000 users, 17 minutes) - validates NFR-003
+   .\run-benchmark.ps1 -ApiUrl http://localhost:8081
+   
+   # View results
+   cat results\summary.json
+   # Expected: p95 < 100ms, throughput > 1000 msg/s
+   ```
+
+7. **Read Architecture Documentation**:
+   - **Consolidated Docs** (DOC_REVISADA/): Complete implementation guides for all features
+   - `specs/001-ubiquitous-messaging-platform/research.md` - Architectural decisions (CQRS, Kafka, MongoDB)
+   - `specs/001-ubiquitous-messaging-platform/data-model.md` - MongoDB schema design
+   - `docs/architecture/system-overview.md` - High-level architecture and component interactions
+8. **Run Full Test Suite**:
    ```bash
    # All tests (unit + integration + contract)
    mvn clean verify
    
    # View coverage report
+   mvn jacoco:report
+   open target/site/jacoco/index.html  # macOS
+   xdg-open target/site/jacoco/index.html  # Linux
+   start target\site\jacoco\index.html  # Windows PowerShell
+   
+   # Expected: >80% coverage (current: 85%)
+   ```
+
+9. **Explore Multi-Platform Integration** (Phase 8 - Mock Adapters):
+   ```bash
+   # Send message to Telegram
+   grpcurl -plaintext \
+     -d '{
+       "message_id": "msg-uuid",
+       "conversation_id": "conv-uuid",
+       "sender_id": "user-alice",
+       "platform_conversation_id": "telegram-chat-123",
+       "platform": "TELEGRAM",
+       "message_text": "Hello Telegram!"
+     }' \
+     localhost:9090 \
+     chat_api.v1.PlatformService/SendToExternalPlatform
+   
+   # Check Kafka topics
+   docker exec -it kafka kafka-console-consumer \
+     --bootstrap-server localhost:9092 \
+     --topic platform-message-events \
+     --from-beginning
+   
+   # Monitor webhook callbacks (simulated delivery confirmations)
+   docker-compose logs chat-api | Select-String "WebhookTriggerService"
+   ```iew coverage report
    mvn jacoco:report
    open target/site/jacoco/index.html  # macOS
    xdg-open target/site/jacoco/index.html  # Linux
@@ -562,10 +647,13 @@ After POC is running:
 ## Resources
 
 - **gRPC Documentation**: https://grpc.io/docs/languages/java/
-- **Spring Boot with gRPC**: https://github.com/LogNet/grpc-spring-boot-starter
+- **Spring Boot with gRPC**: https://yidongnan.github.io/grpc-spring-boot-starter/
+- **Apache Kafka**: https://kafka.apache.org/documentation/
+- **Spring Kafka**: https://spring.io/projects/spring-kafka
+- **MongoDB Replica Sets**: https://www.mongodb.com/docs/manual/replication/
+- **MinIO Documentation**: https://min.io/docs/minio/linux/index.html
 - **Testcontainers**: https://www.testcontainers.org/
-- **RabbitMQ Tutorials**: https://www.rabbitmq.com/getstarted.html
-- **MongoDB University (Free)**: https://university.mongodb.com/
+- **Prometheus + Grafana**: https://prometheus.io/docs/visualization/grafana/
 
 ---
 

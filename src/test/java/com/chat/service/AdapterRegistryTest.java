@@ -40,7 +40,6 @@ class AdapterRegistryTest {
      * Validates that Spring successfully creates all required beans:
      * - WhatsAppMockAdapter (@Component("whatsappAdapter"))
      * - InstagramMockAdapter (@Component("instagramAdapter"))
-     * - TelegramBotAdapterStub (@Component("telegramAdapter"))
      * - AdapterRegistry (@Service with @Qualifier constructor params)
      */
     @Test
@@ -53,13 +52,13 @@ class AdapterRegistryTest {
     /**
      * Test 2: Adapter Count
      * 
-     * Validates that registry contains exactly 3 adapters (one per platform).
+     * Validates that registry contains exactly 2 adapters (one per platform).
      */
     @Test
-    @DisplayName("Should have exactly 3 adapters registered")
+    @DisplayName("Should have exactly 2 adapters registered")
     void testAdapterCount() {
-        assertEquals(3, adapterRegistry.getAdapterCount(),
-            "Registry should contain WhatsApp, Instagram, Telegram adapters");
+        assertEquals(2, adapterRegistry.getAdapterCount(),
+            "Registry should contain WhatsApp and Instagram adapters");
     }
 
     /**
@@ -95,22 +94,7 @@ class AdapterRegistryTest {
     }
 
     /**
-     * Test 5: Telegram Adapter Lookup
-     */
-    @Test
-    @DisplayName("Should return Telegram adapter for TELEGRAM platform")
-    void testGetTelegramAdapter() {
-        PlatformAdapter adapter = adapterRegistry.getAdapter(Platform.TELEGRAM);
-        
-        assertNotNull(adapter, "Telegram adapter should be registered");
-        assertEquals(Platform.TELEGRAM, adapter.getPlatform(),
-            "Adapter should identify as TELEGRAM platform");
-        assertEquals("TelegramBotAdapterStub", adapter.getClass().getSimpleName(),
-            "Should return TelegramBotAdapterStub instance");
-    }
-
-    /**
-     * Test 6: HasAdapter Check - Existing Platform
+     * Test 5: HasAdapter Check - Existing Platform
      */
     @Test
     @DisplayName("Should return true for registered platforms")
@@ -119,12 +103,10 @@ class AdapterRegistryTest {
             "Should have WhatsApp adapter");
         assertTrue(adapterRegistry.hasAdapter(Platform.INSTAGRAM),
             "Should have Instagram adapter");
-        assertTrue(adapterRegistry.hasAdapter(Platform.TELEGRAM),
-            "Should have Telegram adapter");
     }
 
     /**
-     * Test 7: Null Platform Handling
+     * Test 6: Null Platform Handling
      * 
      * Edge case: What happens if we try to get adapter for null platform?
      */
@@ -176,7 +158,7 @@ class AdapterRegistryTest {
      * Test 10: Registry Immutability
      * 
      * Validates that registry state doesn't change after construction.
-     * Adapter count should always be 3.
+     * Adapter count should always be 2.
      */
     @Test
     @DisplayName("Should maintain consistent state across calls")
@@ -186,7 +168,7 @@ class AdapterRegistryTest {
         // Perform some operations
         adapterRegistry.getAdapter(Platform.WHATSAPP);
         adapterRegistry.getAdapter(Platform.INSTAGRAM);
-        adapterRegistry.hasAdapter(Platform.TELEGRAM);
+        adapterRegistry.hasAdapter(Platform.WHATSAPP);
         
         int count2 = adapterRegistry.getAdapterCount();
         
@@ -195,14 +177,16 @@ class AdapterRegistryTest {
     }
 
     /**
-     * Test 11: All Platforms Covered
+     * Test 11: Registered Platforms Covered
      * 
-     * Validates that every Platform enum value has a corresponding adapter.
+     * Validates that WhatsApp and Instagram platforms have adapters.
      */
     @Test
-    @DisplayName("Should have adapter for every Platform enum value")
-    void testAllPlatformsCovered() {
-        for (Platform platform : Platform.values()) {
+    @DisplayName("Should have adapter for WhatsApp and Instagram platforms")
+    void testRegisteredPlatformsCovered() {
+        Platform[] registeredPlatforms = {Platform.WHATSAPP, Platform.INSTAGRAM};
+        
+        for (Platform platform : registeredPlatforms) {
             assertTrue(adapterRegistry.hasAdapter(platform),
                 "Should have adapter for platform: " + platform);
             
@@ -221,8 +205,8 @@ class AdapterRegistryTest {
      * to bean names during autowiring.
      * 
      * Educational: This test demonstrates how Spring DI works:
-     * 1. AdapterRegistry constructor has 3 @Qualifier parameters
-     * 2. Spring finds beans named "whatsappAdapter", "instagramAdapter", "telegramAdapter"
+     * 1. AdapterRegistry constructor has 2 @Qualifier parameters
+     * 2. Spring finds beans named "whatsappAdapter" and "instagramAdapter"
      * 3. Spring injects correct beans into EnumMap
      * 4. This test verifies the wiring worked correctly
      */
@@ -242,10 +226,6 @@ class AdapterRegistryTest {
         PlatformAdapter instagram = adapterRegistry.getAdapter(Platform.INSTAGRAM);
         assertEquals("InstagramMockAdapter", instagram.getClass().getSimpleName(),
             "@Qualifier(\"instagramAdapter\") should resolve to InstagramMockAdapter bean");
-        
-        PlatformAdapter telegram = adapterRegistry.getAdapter(Platform.TELEGRAM);
-        assertEquals("TelegramBotAdapterStub", telegram.getClass().getSimpleName(),
-            "@Qualifier(\"telegramAdapter\") should resolve to TelegramBotAdapterStub bean");
     }
 
     /**
@@ -264,8 +244,9 @@ class AdapterRegistryTest {
         for (int i = 0; i < threadCount; i++) {
             threads[i] = new Thread(() -> {
                 for (int j = 0; j < lookupsPerThread; j++) {
-                    // Cycle through platforms
-                    Platform platform = Platform.values()[j % 3];
+                    // Cycle through registered platforms only (WhatsApp and Instagram)
+                    Platform[] platforms = {Platform.WHATSAPP, Platform.INSTAGRAM};
+                    Platform platform = platforms[j % 2];
                     PlatformAdapter adapter = adapterRegistry.getAdapter(platform);
                     assertNotNull(adapter);
                     assertEquals(platform, adapter.getPlatform());
@@ -279,7 +260,7 @@ class AdapterRegistryTest {
         }
 
         // If we got here without exceptions, thread safety is OK
-        assertEquals(3, adapterRegistry.getAdapterCount(),
+        assertEquals(2, adapterRegistry.getAdapterCount(),
             "Registry should maintain consistent state after concurrent access");
     }
 }

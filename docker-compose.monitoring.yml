@@ -5,7 +5,7 @@
 #   docker-compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
 #
 # Acesso:
-#   - Prometheus: http://localhost:9090
+#   - Prometheus: http://localhost:9091
 #   - Grafana: http://localhost:3000 (admin/admin)
 
 version: '3.8'
@@ -17,7 +17,7 @@ services:
     container_name: prometheus
     restart: unless-stopped
     ports:
-      - "9090:9090"
+      - "9091:9090"  # Porta externa 9091 para não conflitar com gRPC (9090)
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus

@@ -6,7 +6,7 @@ services:
     image: mongo:7.0
     container_name: mongodb-dev
     ports:
-      - "27017:27017"
+      - "27020:27017"  # Porta externa alterada para evitar conflito com docker-compose.yml
     volumes:
       - mongodb_dev_data:/data/db
     healthcheck:
@@ -23,7 +23,7 @@ services:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
     ports:
-      - "2181:2181"
+      - "2182:2181"  # Porta externa alterada para evitar conflito
 
   # Apache Kafka (Message Broker)
   kafka:
@@ -32,12 +32,12 @@ services:
     depends_on:
       - zookeeper
     ports:
-      - "9092:9092"
-      - "29092:29092"
+      - "9093:9092"  # Porta externa alterada para evitar conflito
+      - "29093:29092"  # Porta interna alterada
     environment:
-      KAFKA_BROKER_ID: 1
+      KAFKA_BROKER_ID: 2  # ID diferente do kafka principal
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29093,PLAINTEXT_HOST://localhost:9093
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
@@ -55,10 +55,10 @@ services:
     depends_on:
       - kafka
     ports:
-      - "8080:8080"
+      - "8082:8080"  # Porta externa alterada para evitar conflito
     environment:
-      KAFKA_CLUSTERS_0_NAME: local
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_NAME: local-dev
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29093
       KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
 
 volumes:

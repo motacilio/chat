@@ -17,15 +17,21 @@ grpc:
 
 # Management/Actuator
 management:
+  server:
+    port: 8081
   endpoints:
+    enabled-by-default: true
     web:
       exposure:
-        include: health,info,metrics,prometheus
+        include: "*"
       base-path: /actuator
   endpoint:
-    health:
-      show-details: always
     prometheus:
+      enabled: true
+    health:
+      enabled: true
+      show-details: always
+    info:
       enabled: true
     metrics:
       enabled: true
@@ -33,16 +39,13 @@ management:
     export:
       prometheus:
         enabled: true
-        step: 10s
-    distribution:
-      percentiles-histogram:
-        http.server.requests: true
-        message.latency.seconds: true
-        file.upload.latency.seconds: true
-        platform.delivery.latency.ms: true
+        step: 1m
     tags:
       application: ${spring.application.name}
-      environment: ${spring.profiles.active}
+  prometheus:
+    metrics:
+      export:
+        enabled: true
 
 # MinIO Object Storage (defaults)
 minio:
@@ -59,6 +62,7 @@ logging:
   level:
     com.chat: DEBUG
     org.springframework: INFO
+    org.springframework.boot.autoconfigure: DEBUG
     io.grpc: INFO
     io.minio: DEBUG
   pattern:
@@ -132,3 +136,6 @@ resilience4j:
         timeoutDuration: 0s
         eventConsumerBufferSize: 50
 
+# Webhook Base URL (for adapter callbacks)
+webhook:
+  base-url: ${WEBHOOK_BASE_URL:http://localhost:8081}

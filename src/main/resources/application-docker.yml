@@ -50,3 +50,16 @@ logging:
     com.chat: INFO
     org.apache.kafka: WARN
     org.springframework.data.mongodb: INFO
+
+# Rate Limiting Configuration (Resilience4j)
+resilience4j:
+  ratelimiter:
+    instances:
+      sendMessage:
+        limitForPeriod: 100
+        limitRefreshPeriod: 1s
+        timeoutDuration: 0s
+      default:
+        limitForPeriod: 50
+        limitRefreshPeriod: 1s
+        timeoutDuration: 0s

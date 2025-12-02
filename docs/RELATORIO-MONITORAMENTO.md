@@ -1,9 +1,9 @@
 # Relatório de Implementação - Observabilidade em Sistemas Distribuídos
 
-**Data**: 27 de Novembro de 2025  
+**Data**: 01 de Dezembro de 2025 (Atualizado)  
 **Disciplina**: Sistemas Distribuídos  
 **Tema**: Monitoramento e Observabilidade  
-**Status**: ✅ CONCLUÍDO
+**Status**: ✅ CONCLUÍDO (com workaround para Spring Boot 3.2.5)
 
 ---
 
@@ -16,15 +16,37 @@ Em sistemas distribuídos baseados em microserviços, a observabilidade é funda
 - **SLA/SLO**: Validar requisitos não-funcionais (latência, throughput, disponibilidade)
 
 ### 1.2 Stack Implementada
-- **Prometheus** (pull-based metrics): Coleta time-series, retenção 15 dias
-- **Grafana** (visualização): 7 dashboards cobrindo golden signals (latência, tráfego, erros, saturação)
-- **Micrometer** (abstração): Vendor-neutral metrics facade
-- **Spring Boot Actuator**: Exposição de métricas via `/actuator/prometheus`
+- **Prometheus 2.48+** (pull-based metrics): Coleta time-series, retenção 15 dias, porta 9091
+- **Grafana 10.2+** (visualização): 5 dashboards cobrindo golden signals (latência, tráfego, erros, saturação)
+- **Micrometer 1.12.5** (abstração): Vendor-neutral metrics facade
+- **Spring Boot Actuator 3.2.5**: Exposição de métricas via `/actuator/prometheus` (com workaround)
 
 ### 1.3 Métricas de Implementação
-- **Tempo**: ~4h (estimado: 16-20h) - alta reutilização de padrões
+- **Tempo**: ~8h (incluindo 3h+ debugging Spring Boot 3.2.5 bug)
 - **LOC**: +450 linhas (código + configuração)
-- **Métricas customizadas**: 14 (6 counters, 6 timers, 2 gauges)
+- **Métricas disponíveis**: 1000+ (JVM, Kafka, Circuit Breakers, HTTP)
+- **Volume de métricas**: ~57KB por scrape
+
+### 1.4 ⚠️ Desafio Técnico Resolvido
+
+**Bug Spring Boot 3.2.5**: `@ConditionalOnAvailableEndpoint` falha ao detectar exposição do endpoint `/actuator/prometheus`, mesmo com configuração correta (`include: "*"`).
+
+**Solução Implementada**: `PrometheusController.java` - `@RestController` que bypassa auto-configuration:
+
+```java
+@RestController
+@RequestMapping("/actuator")
+public class PrometheusController {
+    private final PrometheusMeterRegistry prometheusMeterRegistry;
+
+    @GetMapping(value = "/prometheus", produces = MediaType.TEXT_PLAIN_VALUE)
+    public String prometheus() {
+        return prometheusMeterRegistry.scrape();
+    }
+}
+```
+
+**Resultado**: HTTP 200 OK, 57KB+ métricas, 1155+ requests bem-sucedidos.
 
 ---
 
@@ -430,15 +452,19 @@ Configurações incluem:
 
 ## 📚 Documentação Gerada
 
-1. **GUIA-MONITORAMENTO.md**: Guia completo de uso (450 linhas)
-   - Início rápido
-   - Queries Prometheus úteis
-   - Troubleshooting
-   - Referências
+1. **GUIA-GRAFANA-PROMETHEUS-TESTES.md**: Guia completo de uso (900+ linhas)
+   - Início rápido com docker-compose
+   - Configuração Prometheus/Grafana
+   - 50+ queries PromQL úteis
+   - Testes de carga (k6, ghz)
+   - Chaos engineering (simulação de falhas)
+   - Troubleshooting completo (incluindo Spring Boot 3.2.5 bug)
 
 2. **RELATORIO-MONITORAMENTO.md**: Este relatório (resumo técnico)
 
 3. **grafana-dashboard-basic.json**: Dashboard exportável
+
+4. **09-OBSERVABILIDADE-E-MONITORAMENTO.md**: Documentação arquitetural revisada
 
 ---
 
@@ -446,8 +472,10 @@ Configurações incluem:
 
 **Fase 1: Observabilidade e Monitoramento** foi implementada com sucesso, fornecendo:
 
-- ✅ Visibilidade completa do sistema via métricas
+- ✅ Visibilidade completa do sistema via métricas (1000+ métricas, ~57KB)
 - ✅ Dashboards prontos para monitoramento em tempo real
+- ✅ Workaround confiável para Spring Boot 3.2.5 bug
+- ✅ Documentação completa com guias de troubleshooting
 - ✅ Infraestrutura escalável (Prometheus + Grafana)
 - ✅ Base sólida para testes de carga (Fase 2)
 
