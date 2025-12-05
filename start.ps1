@@ -300,7 +300,7 @@ Start-Sleep -Seconds 5
 
 # Validar se containers realmente subiram
 Write-Info "Validando se containers iniciaram..."
-$expectedContainers = @("kafka-dev", "zookeeper-dev", "mongodb-dev")
+$expectedContainers = @("kafka-dev", "zookeeper-dev", "mongodb-dev", "kafka-ui-dev", "minio-dev")
 $containerCheckAttempts = 0
 $maxContainerCheckAttempts = 10
 
@@ -366,6 +366,13 @@ if (-not (Wait-ForService -ServiceName "MongoDB" -Port 27017 -MaxAttempts 20)) {
     Write-Error "MongoDB não iniciou corretamente"
     Write-Info "Logs do MongoDB:"
     docker-compose -f docker-compose.dev.yml logs mongodb --tail 30
+    Read-Host "`nPressione ENTER para sair"
+    exit 1
+}
+
+# Aguardar MinIO
+Write-Info "Aguardando MinIO..."
+if (-not (Wait-ForService -ServiceName "MinIO" -Port 9000)) {
     Read-Host "`nPressione ENTER para sair"
     exit 1
 }

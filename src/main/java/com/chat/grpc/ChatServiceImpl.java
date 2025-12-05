@@ -4,7 +4,9 @@ import com.chat.exception.RateLimitExceededException;
 import com.chat.grpc.v1.*;
 import com.chat.kafka.v1.MessageEvent;
 import com.chat.kafka.v1.StateUpdateEvent;
+import com.chat.model.Conversation;
 import com.chat.model.MessageStatus;
+import com.chat.repository.ConversationRepository;
 import com.chat.service.MessageService;
 import com.chat.service.RateLimitService;
 import com.chat.service.StreamingService;
@@ -47,6 +49,7 @@ public class ChatServiceImpl extends ChatServiceGrpc.ChatServiceImplBase {
     private final MessageService messageService;
     private final StreamingService streamingService;
     private final RateLimitService rateLimitService;
+    private final ConversationRepository conversationRepository;
     private final KafkaTemplate<String, MessageEvent> messageKafkaTemplate;
     private final KafkaTemplate<String, StateUpdateEvent> stateKafkaTemplate;
     private final GlobalExceptionHandler exceptionHandler;
@@ -55,12 +58,14 @@ public class ChatServiceImpl extends ChatServiceGrpc.ChatServiceImplBase {
             MessageService messageService,
             StreamingService streamingService,
             RateLimitService rateLimitService,
+            ConversationRepository conversationRepository,
             KafkaTemplate<String, MessageEvent> messageKafkaTemplate,
             KafkaTemplate<String, StateUpdateEvent> stateKafkaTemplate,
             GlobalExceptionHandler exceptionHandler) {
         this.messageService = messageService;
         this.streamingService = streamingService;
         this.rateLimitService = rateLimitService;
+        this.conversationRepository = conversationRepository;
         this.messageKafkaTemplate = messageKafkaTemplate;
         this.stateKafkaTemplate = stateKafkaTemplate;
         this.exceptionHandler = exceptionHandler;
@@ -135,13 +140,22 @@ public class ChatServiceImpl extends ChatServiceGrpc.ChatServiceImplBase {
             // Generate sequence number for message ordering (atomic per FR-007)
             Long sequenceNumber = messageService.generateSequenceNumber(conversationId);
             
+            // Get conversation to extract all participants for group message fanout
+            Conversation conversation = conversationRepository.findByConversationId(conversationId)
+                    .orElseThrow(() -> new IllegalArgumentException("Conversation not found: " + conversationId));
+            
+            // Build recipient list: all participants EXCEPT sender
+            List<String> recipientIds = conversation.getParticipants().stream()
+                    .filter(participantId -> !participantId.equals(senderId))
+                    .toList();
+            
             // Create Kafka event (Protobuf)
             Instant now = Instant.now();
             MessageEvent event = MessageEvent.newBuilder()
                     .setMessageId(messageId)
                     .setConversationId(conversationId)
                     .setSenderId(senderId)
-                    .addRecipientIds(recipientId)  // Add recipient for platform routing
+                    .addAllRecipientIds(recipientIds)  // All participants (excluding sender) for streaming fanout
                     .setMessageText(messageText)
                     .setSequenceNumber(sequenceNumber)
                     .setTimestamp(Timestamps.fromMillis(now.toEpochMilli()))
@@ -239,11 +253,11 @@ public class ChatServiceImpl extends ChatServiceGrpc.ChatServiceImplBase {
         com.chat.model.Conversation conversation = messageService.getConversationForMessage(message.getMessageId());
         
         // Group state transitions by recipient_id
+        // Include ALL states (SENT, DELIVERED, READ) to properly track recipient status
         java.util.Map<String, java.util.List<com.chat.model.MessageStateTransition>> transitionsByRecipient = 
             message.getStateHistory()
                 .stream()
                 .filter(t -> t.getRecipientId() != null && !t.getRecipientId().isEmpty())
-                .filter(t -> t.getState() != com.chat.model.MessageStatus.SENT) // Exclude SENT
                 .collect(java.util.stream.Collectors.groupingBy(
                     com.chat.model.MessageStateTransition::getRecipientId
                 ));

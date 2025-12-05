@@ -76,16 +76,8 @@ public class AuthenticationInterceptor implements ServerInterceptor {
     private static final Set<String> PUBLIC_METHODS = new HashSet<>();
     
     static {
-        // DEV MODE: Disable authentication for testing
-        // TODO: Remove these in production
-        PUBLIC_METHODS.add("chat_api.v1.ConversationService/CreateConversation");
-        PUBLIC_METHODS.add("chat_api.v1.ConversationService/GetConversation");
-        PUBLIC_METHODS.add("chat_api.v1.ConversationService/ListConversations");
-        PUBLIC_METHODS.add("chat_api.v1.ConversationService/GetConversationHistory");
-        PUBLIC_METHODS.add("chat_api.v1.ChatService/SendMessage");
-        PUBLIC_METHODS.add("chat_api.v1.ChatService/GetMessageStatus");
-        PUBLIC_METHODS.add("chat_api.v1.ChatService/MarkMessageAsRead");
-        PUBLIC_METHODS.add("chat_api.v1.ChatService/SubscribeToUpdates");
+        // All methods require JWT authentication
+        // No public methods - empty whitelist
     }
     
     @Autowired
