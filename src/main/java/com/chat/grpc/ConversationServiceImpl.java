@@ -6,6 +6,7 @@ import com.chat.model.ConversationType;
 import com.chat.model.Message;
 import com.chat.repository.ConversationRepository;
 import com.chat.repository.MessageRepository;
+import com.chat.security.AuthenticationInterceptor;
 import com.chat.service.ConversationService;
 import com.chat.util.UuidValidator;
 import com.google.protobuf.Timestamp;
@@ -104,9 +105,24 @@ public class ConversationServiceImpl extends ConversationServiceGrpc.Conversatio
                 String participant1 = participantIds.get(0);
                 String participant2 = participantIds.get(1);
                 
-                // TODO: Extract creatorId from gRPC metadata (JWT claims)
-                // For now, use participant1 as creator
-                String creatorId = participant1;
+                // Extract creatorId from JWT claims (validated by AuthenticationInterceptor)
+                String creatorId = AuthenticationInterceptor.USER_ID_CONTEXT_KEY.get();
+                
+                // DEV MODE: If no JWT (creatorId is null), use first participant as creator for testing
+                if (creatorId == null) {
+                    creatorId = participant1;
+                    logger.warn("No JWT authentication - using participant1 as creator (DEV MODE ONLY)");
+                }
+                
+                // Validate that authenticated user is one of the participants
+                if (!participantIds.contains(creatorId)) {
+                    logger.warn("User {} attempted to create conversation between other users: {}, {}", 
+                            creatorId, participant1, participant2);
+                    responseObserver.onError(Status.PERMISSION_DENIED
+                            .withDescription("You must be one of the 2 participants in the conversation you create. Include your user_id in the participant_ids list.")
+                            .asRuntimeException());
+                    return;
+                }
                 
                 // Create private conversation via service layer
                 conversation = conversationService.createConversation(participant1, participant2, creatorId);
@@ -122,9 +138,23 @@ public class ConversationServiceImpl extends ConversationServiceGrpc.Conversatio
                     return;
                 }
                 
-                // TODO: Extract creatorId from gRPC metadata (JWT claims)
-                // For now, use first participant as creator
-                String creatorId = participantIds.get(0);
+                // Extract creatorId from JWT claims (validated by AuthenticationInterceptor)
+                String creatorId = AuthenticationInterceptor.USER_ID_CONTEXT_KEY.get();
+                
+                // DEV MODE: If no JWT (creatorId is null), use first participant as creator for testing
+                if (creatorId == null) {
+                    creatorId = participantIds.get(0);
+                    logger.warn("No JWT authentication - using first participant as creator (DEV MODE ONLY)");
+                }
+                
+                // Validate that authenticated user is in the participants list
+                if (!participantIds.contains(creatorId)) {
+                    logger.warn("User {} attempted to create group conversation without being a participant", creatorId);
+                    responseObserver.onError(Status.PERMISSION_DENIED
+                            .withDescription("You must be a participant in the group you create")
+                            .asRuntimeException());
+                    return;
+                }
                 
                 // Create group conversation via service layer (T062)
                 conversation = conversationService.createGroupConversation(participantIds, creatorId);
@@ -188,6 +218,27 @@ public class ConversationServiceImpl extends ConversationServiceGrpc.Conversatio
             String conversationId = request.getConversationId();
             String userId = request.getUserId();
             String addedBy = request.getAddedBy();
+            
+            // Extract authenticated user from JWT
+            String authenticatedUserId = AuthenticationInterceptor.USER_ID_CONTEXT_KEY.get();
+            
+            if (authenticatedUserId == null) {
+                logger.error("User ID not found in context (authentication failed)");
+                responseObserver.onError(Status.UNAUTHENTICATED
+                        .withDescription("User not authenticated")
+                        .asRuntimeException());
+                return;
+            }
+            
+            // Validate that authenticated user is the one performing the action
+            if (!authenticatedUserId.equals(addedBy)) {
+                logger.warn("User {} attempted to add member on behalf of user {}", 
+                        authenticatedUserId, addedBy);
+                responseObserver.onError(Status.PERMISSION_DENIED
+                        .withDescription("You can only add members as yourself")
+                        .asRuntimeException());
+                return;
+            }
             
             // Add member via service layer (handles validation, authorization, capacity checks)
             conversationService.addMember(conversationId, userId, addedBy);
@@ -253,6 +304,27 @@ public class ConversationServiceImpl extends ConversationServiceGrpc.Conversatio
             String userId = request.getUserId();
             String removedBy = request.getRemovedBy();
             
+            // Extract authenticated user from JWT
+            String authenticatedUserId = AuthenticationInterceptor.USER_ID_CONTEXT_KEY.get();
+            
+            if (authenticatedUserId == null) {
+                logger.error("User ID not found in context (authentication failed)");
+                responseObserver.onError(Status.UNAUTHENTICATED
+                        .withDescription("User not authenticated")
+                        .asRuntimeException());
+                return;
+            }
+            
+            // Validate that authenticated user is the one performing the action
+            if (!authenticatedUserId.equals(removedBy)) {
+                logger.warn("User {} attempted to remove member on behalf of user {}", 
+                        authenticatedUserId, removedBy);
+                responseObserver.onError(Status.PERMISSION_DENIED
+                        .withDescription("You can only remove members as yourself")
+                        .asRuntimeException());
+                return;
+            }
+            
             // Remove member via service layer (handles validation, authorization)
             conversationService.removeMember(conversationId, userId, removedBy);
             
@@ -313,6 +385,25 @@ public class ConversationServiceImpl extends ConversationServiceGrpc.Conversatio
             String userId = request.getUserId();
             int limit = request.getLimit() > 0 ? request.getLimit() : 20; // Default 20
             int offset = request.getOffset();
+            
+            // SECURITY: Validate user_id matches authenticated user from JWT token
+            String authenticatedUserId = AuthenticationInterceptor.USER_ID_CONTEXT_KEY.get();
+            if (authenticatedUserId == null) {
+                logger.error("SECURITY: No authenticated user in context");
+                responseObserver.onError(Status.UNAUTHENTICATED
+                        .withDescription("Authentication required")
+                        .asRuntimeException());
+                return;
+            }
+            
+            if (!userId.equals(authenticatedUserId)) {
+                logger.error("SECURITY: user_id mismatch - token userId: {}, request userId: {}", 
+                            authenticatedUserId, userId);
+                responseObserver.onError(Status.PERMISSION_DENIED
+                        .withDescription("user_id must match authenticated user")
+                        .asRuntimeException());
+                return;
+            }
             
             // Query conversations via service layer (handles pagination validation)
             Page<Conversation> conversationsPage = conversationService.listConversations(userId, limit, offset);
@@ -376,8 +467,16 @@ public class ConversationServiceImpl extends ConversationServiceGrpc.Conversatio
             // Validate conversation_id format
             UuidValidator.validateOrThrow(conversationId, "conversation_id");
             
-            // TODO: Add authorization check - extract user_id from JWT claims in gRPC metadata
-            // and verify user is in conversation.participants list
+            // Extract authenticated user from JWT (validated by AuthenticationInterceptor)
+            String authenticatedUserId = AuthenticationInterceptor.USER_ID_CONTEXT_KEY.get();
+            
+            if (authenticatedUserId == null) {
+                logger.error("User ID not found in context (authentication failed)");
+                responseObserver.onError(Status.UNAUTHENTICATED
+                        .withDescription("User not authenticated")
+                        .asRuntimeException());
+                return;
+            }
             
             // Query conversation by ID
             Optional<Conversation> conversationOpt = conversationRepository.findByConversationId(conversationId);
@@ -391,6 +490,16 @@ public class ConversationServiceImpl extends ConversationServiceGrpc.Conversatio
             }
             
             Conversation conversation = conversationOpt.get();
+            
+            // Authorization check: verify user is a participant
+            if (!conversation.getParticipants().contains(authenticatedUserId)) {
+                logger.warn("User {} attempted to access conversation {} without being a participant", 
+                        authenticatedUserId, conversationId);
+                responseObserver.onError(Status.PERMISSION_DENIED
+                        .withDescription("You are not a participant in this conversation")
+                        .asRuntimeException());
+                return;
+            }
             
             // Build GetConversationResponse with full conversation details
             GetConversationResponse.Builder responseBuilder = GetConversationResponse.newBuilder()
@@ -457,7 +566,38 @@ public class ConversationServiceImpl extends ConversationServiceGrpc.Conversatio
             // Validate conversation_id
             UuidValidator.validateOrThrow(conversationId, "conversation_id");
             
-            // TODO: Add authorization check - verify user is conversation participant
+            // Extract authenticated user from JWT (validated by AuthenticationInterceptor)
+            String authenticatedUserId = AuthenticationInterceptor.USER_ID_CONTEXT_KEY.get();
+            
+            if (authenticatedUserId == null) {
+                logger.error("User ID not found in context (authentication failed)");
+                responseObserver.onError(Status.UNAUTHENTICATED
+                        .withDescription("User not authenticated")
+                        .asRuntimeException());
+                return;
+            }
+            
+            // Authorization check: verify user is a participant in the conversation
+            Optional<Conversation> conversationOpt = conversationRepository.findByConversationId(conversationId);
+            
+            if (conversationOpt.isEmpty()) {
+                logger.warn("Conversation not found: {}", conversationId);
+                responseObserver.onError(Status.NOT_FOUND
+                        .withDescription("Conversation not found: " + conversationId)
+                        .asRuntimeException());
+                return;
+            }
+            
+            Conversation conversation = conversationOpt.get();
+            
+            if (!conversation.getParticipants().contains(authenticatedUserId)) {
+                logger.warn("User {} attempted to access history of conversation {} without being a participant", 
+                        authenticatedUserId, conversationId);
+                responseObserver.onError(Status.PERMISSION_DENIED
+                        .withDescription("You are not a participant in this conversation")
+                        .asRuntimeException());
+                return;
+            }
             
             // Query messages with pagination (sorted by timestamp descending)
             Pageable pageable = PageRequest.of(

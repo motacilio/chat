@@ -1,0 +1,31 @@
+# Test Profile Configuration
+# Usado pelos testes de integração para evitar conflito de portas
+
+# IMPORTANTE: Para rodar testes de integração, PARE a aplicação principal primeiro:
+# Stop-Process -Name java -Force
+
+server:
+  port: 0  # Random port para REST API
+
+grpc:
+  server:
+    port: 9090  # MESMA porta da aplicação principal (aplicação deve estar parada)
+
+spring:
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: chat-test-consumer
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+    producer:
+      retries: 3
+
+  data:
+    mongodb:
+      uri: mongodb://localhost:27017/chat-test  # Database separado para testes
+      
+logging:
+  level:
+    com.chat: DEBUG
+    org.springframework: WARN

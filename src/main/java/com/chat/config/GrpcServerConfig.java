@@ -20,7 +20,7 @@ import org.springframework.context.annotation.Configuration;
  */
 @Configuration
 public class GrpcServerConfig {
-
+    
     /**
      * Adds ProtoReflectionService to gRPC server for runtime service discovery.
      * 

@@ -112,4 +112,24 @@ public class KafkaProducerConfig {
     public KafkaTemplate<String, PlatformMessageEvent> platformKafkaTemplate() {
         return new KafkaTemplate<>((ProducerFactory<String, PlatformMessageEvent>) (ProducerFactory<?, ?>) producerFactory());
     }
+    
+    /**
+     * KafkaTemplate for JSON string payloads.
+     * Used by webhook services that receive JSON from external platforms.
+     * 
+     * @return KafkaTemplate for JSON string messages
+     */
+    @Bean
+    public KafkaTemplate<String, String> jsonKafkaTemplate() {
+        Map<String, Object> configProps = new HashMap<>();
+        configProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        configProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
+        configProps.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
+        configProps.put(ProducerConfig.ACKS_CONFIG, "all");
+        configProps.put(ProducerConfig.RETRIES_CONFIG, 3);
+        configProps.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
+        
+        ProducerFactory<String, String> factory = new DefaultKafkaProducerFactory<>(configProps);
+        return new KafkaTemplate<>(factory);
+    }
 }

@@ -2,6 +2,7 @@ package com.chat.security;
 
 import com.chat.service.JwtService;
 import io.grpc.*;
+import org.lognet.springboot.grpc.GRpcGlobalInterceptor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,6 +33,7 @@ import java.util.Set;
  * See: specs/001-ubiquitous-messaging-platform/authentication-jwt-research.md Decision 3, 6, 7
  */
 @Component
+@GRpcGlobalInterceptor
 public class AuthenticationInterceptor implements ServerInterceptor {
     
     private static final Logger logger = LoggerFactory.getLogger(AuthenticationInterceptor.class);
@@ -62,6 +64,9 @@ public class AuthenticationInterceptor implements ServerInterceptor {
     /**
      * Public methods that don't require authentication.
      * 
+     * DEV MODE: All methods are public for easier testing without JWT setup.
+     * Production: Remove these entries and require JWT for all operations.
+     * 
      * POC: Empty set - all methods require authentication for testing.
      * Production: Add health check methods, public endpoints.
      * 
@@ -69,6 +74,19 @@ public class AuthenticationInterceptor implements ServerInterceptor {
      * PUBLIC_METHODS.add("chat.ChatService/HealthCheck");
      */
     private static final Set<String> PUBLIC_METHODS = new HashSet<>();
+    
+    static {
+        // DEV MODE: Disable authentication for testing
+        // TODO: Remove these in production
+        PUBLIC_METHODS.add("chat_api.v1.ConversationService/CreateConversation");
+        PUBLIC_METHODS.add("chat_api.v1.ConversationService/GetConversation");
+        PUBLIC_METHODS.add("chat_api.v1.ConversationService/ListConversations");
+        PUBLIC_METHODS.add("chat_api.v1.ConversationService/GetConversationHistory");
+        PUBLIC_METHODS.add("chat_api.v1.ChatService/SendMessage");
+        PUBLIC_METHODS.add("chat_api.v1.ChatService/GetMessageStatus");
+        PUBLIC_METHODS.add("chat_api.v1.ChatService/MarkMessageAsRead");
+        PUBLIC_METHODS.add("chat_api.v1.ChatService/SubscribeToUpdates");
+    }
     
     @Autowired
     private JwtService jwtService;

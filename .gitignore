@@ -38,6 +38,8 @@ logs/
 *.log
 spring-boot*.log
 compile-output.txt
+app.log
+app-error.log
 
 # Test artifacts
 test-upload-*.txt
@@ -45,6 +47,14 @@ test-upload-*.log
 file-upload-test-*.log
 grpc-test-*.log
 test-results-*.log
+
+# Documentation (presentation)
+CHECKLIST-FINAL.md
+CHECKLIST-FINAL.md.backup
+CHECKLIST-APRESENTACAO.md
+RELATORIO-TECNICO.html
+RELATORIO-TECNICO.pdf
+*.html
 
 # Test coverage
 coverage/

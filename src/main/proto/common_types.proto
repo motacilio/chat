@@ -22,13 +22,15 @@ import "google/protobuf/timestamp.proto";
 
 /**
  * Message state lifecycle (FR-004)
- * SENT → DELIVERED → READ
+ * SENT → DELIVERED → READ (1:1)
+ * SENT → DELIVERED → PARTIALLY_READ → READ (groups)
  */
 enum MessageStatus {
   MESSAGE_STATUS_UNSPECIFIED = 0;  // Default value (invalid state)
   SENT = 1;                         // Accepted by server, persisted in MongoDB
   DELIVERED = 2;                    // Reached recipient's device
-  READ = 3;                         // Opened by recipient
+  READ = 3;                         // Opened by recipient (all recipients in groups)
+  PARTIALLY_READ = 4;               // Some recipients read, others didn't (groups only)
 }
 
 /**

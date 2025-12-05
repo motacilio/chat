@@ -60,3 +60,16 @@ logging:
     org.apache.kafka: INFO
     org.springframework.data.mongodb: DEBUG
     io.minio: DEBUG
+
+# Webhook Configuration (Dev/Test)
+webhook:
+  base-url: http://localhost:8081
+  
+  # WhatsApp Webhook - Deve coincidir com mock-webhook-sender.js
+  whatsapp:
+    secret-key: whatsapp-test-secret-key-12345
+    verify-token: whatsapp-verify-token-12345
+  
+  # Telegram Webhook - Deve coincidir com mock-webhook-sender.js
+  telegram:
+    secret-token: telegram-test-secret-key-12345

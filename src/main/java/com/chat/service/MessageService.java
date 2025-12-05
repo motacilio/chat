@@ -121,7 +121,7 @@ public class MessageService {
      * @param messageId      Client-generated UUID
      * @param conversationId Conversation UUID
      * @param senderId       Sender user_id
-     * @param recipientId    Recipient user_id (required for auto-created conversations per FR-004a)
+     * @param recipientId    Recipient user_id (OPTIONAL - only for 1:1 auto-created conversations per FR-004a)
      * @param messageText    Text content
      * @throws IllegalArgumentException if validation fails
      */
@@ -129,10 +129,14 @@ public class MessageService {
         // Medir latência de validação
         messageValidationTimer.record(() -> {
             // Validate UUIDs (T035)
-            UuidValidator.validateOrThrow(messageId, "message_id");
+            // Note: messageId is server-generated, already valid UUID - no validation needed
             UuidValidator.validateOrThrow(conversationId, "conversation_id");
             UuidValidator.validateOrThrow(senderId, "sender_id");
-            UuidValidator.validateOrThrow(recipientId, "recipient_id");
+            
+            // recipient_id is OPTIONAL - only validate if present (for 1:1 auto-create)
+            if (recipientId != null && !recipientId.trim().isEmpty()) {
+                UuidValidator.validateOrThrow(recipientId, "recipient_id");
+            }
             
             // Validate message size (T035 - edge case spec)
             if (messageText == null || messageText.trim().isEmpty()) {
@@ -150,30 +154,23 @@ public class MessageService {
                 );
             }
             
-            // Check for duplicate message_id (idempotency per FR-006)
-            if (messageRepository.existsByMessageId(messageId)) {
-                logger.info("Duplicate message_id detected: {} - idempotent request, returning success", messageId);
-                idempotentRequestsCounter.increment(); // Métrica de requisições idempotentes
-                // Not throwing exception - idempotent behavior returns success for duplicate
-                return;
-            }
+            // No duplicate check needed - server generates unique UUIDs automatically
             
             // Get or create conversation (auto-create for first message per FR-004a)
             Conversation conversation = conversationRepository.findByConversationId(conversationId)
                     .orElseGet(() -> {
                         logger.info("Conversation not found: {} - creating automatically with sender: {} and recipient: {}", 
                                 conversationId, senderId, recipientId);
-                        // Auto-create conversation with both sender_id and recipient_id as participants (FR-004a)
-                        Conversation newConv = Conversation.builder()
-                                .conversationId(conversationId)
-                                .type(com.chat.model.ConversationType.PRIVATE)
-                                .participants(java.util.Arrays.asList(senderId, recipientId))
-                                .createdAt(java.time.Instant.now())
-                                .lastMessageAt(java.time.Instant.now())
-                                .build();
+                        // Auto-create conversation using factory method (ensures all required fields are set)
+                        Conversation newConv = Conversation.createPrivate(
+                                conversationId, 
+                                senderId, 
+                                recipientId, 
+                                senderId  // sender is the creator in auto-create scenario
+                        );
                         conversationRepository.save(newConv);
-                        logger.info("Auto-created conversation: {} with participants: [{}, {}]", 
-                                conversationId, senderId, recipientId);
+                        logger.info("Auto-created conversation: {} with participants: [{}, {}], creator: {}", 
+                                conversationId, senderId, recipientId, senderId);
                         return newConv;
                     });
             
@@ -216,6 +213,32 @@ public class MessageService {
     }
     
     /**
+     * Get complete message with state history (T038 - GetMessageStatus).
+     * 
+     * @param messageId Message UUID
+     * @return Complete Message entity with state_history
+     * @throws IllegalArgumentException if message not found
+     */
+    public Message getMessage(String messageId) {
+        return messageRepository.findByMessageId(messageId)
+                .orElseThrow(() -> new IllegalArgumentException("Message not found: " + messageId));
+    }
+    
+    /**
+     * Get conversation for a message (for buildRecipientStatuses).
+     * 
+     * @param messageId Message UUID
+     * @return Conversation entity
+     * @throws IllegalArgumentException if message or conversation not found
+     */
+    public Conversation getConversationForMessage(String messageId) {
+        Message message = getMessage(messageId);
+        return conversationRepository.findByConversationId(message.getConversationId())
+                .orElseThrow(() -> new IllegalStateException(
+                        "Conversation not found for message: " + messageId));
+    }
+    
+    /**
      * Get current message status (T038 helper).
      * 
      * @param messageId Message UUID
@@ -248,7 +271,13 @@ public class MessageService {
                 .orElseThrow(() -> new IllegalStateException(
                         "Conversation not found for message: " + messageId));
         
+        // DEBUG: Log participants and user being checked
+        logger.info("Authorization check - conversation_id: {}, user_id: {}, participants: {}", 
+                   conversation.getConversationId(), userId, conversation.getParticipants());
+        
         if (!conversation.isParticipant(userId)) {
+            logger.error("PERMISSION DENIED - User {} is NOT in participants list: {}", 
+                        userId, conversation.getParticipants());
             throw new SecurityException(
                     "User " + userId + " is not a participant in conversation " + conversation.getConversationId());
         }

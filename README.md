@@ -19,13 +19,11 @@
 1. [Visão Geral](#-visão-geral)
 2. [Funcionalidades](#-funcionalidades)
 3. [Inicialização Rápida](#-inicialização-rápida)
-4. [Arquitetura](#-arquitetura)
-5. [Performance](#-performance)
-6. [Segurança](#-segurança)
-7. [Monitoramento](#-monitoramento)
-8. [Documentação](#-documentação)
-9. [Testes](#-testes)
-10. [Troubleshooting](#-troubleshooting)
+4. [Scripts Disponíveis](#-scripts-disponíveis)
+5. [Arquitetura](#-arquitetura)
+6. [Documentação](#-documentação)
+7. [Testes](#-testes)
+8. [Troubleshooting](#-troubleshooting)
 ## 🎯 Visão Geral
 
 Sistema de mensageria distribuído enterprise-grade com arquitetura event-driven, projetado para escalabilidade horizontal e alta disponibilidade.
@@ -133,23 +131,67 @@ Sistema de mensageria distribuído enterprise-grade com arquitetura event-driven
 java -version    # Java 17+
 mvn -version     # Maven 3.6+
 docker --version # Docker 20+
+docker-compose --version
 ```
 
-### Opção 1: Script Automatizado (Recomendado)
+### Iniciar o Projeto
 
 ```powershell
 # Iniciar tudo (infraestrutura + aplicação)
 .\start.ps1
 
-# Parar tudo
+# Opções disponíveis:
+# .\start.ps1 -SkipBuild    # Pula compilação
+# .\start.ps1 -Rebuild      # Recria containers Docker
+```
+
+**O que o script faz:**
+1. ✅ Valida pré-requisitos (Docker, Java, Maven)
+2. ✅ Inicia containers Docker (MongoDB, Kafka, Zookeeper, MinIO, Kafka-UI)
+3. ✅ Compila a aplicação (Maven)
+4. ✅ Inicia o Spring Boot
+5. ✅ Valida que todos os serviços estão rodando
+
+### Parar o Projeto
+
+```powershell
+# Parar aplicação e containers
 .\stop.ps1
 ```
 
-### Opção 2: Manual
+### Reiniciar Aplicação
 
 ```powershell
-# 1. Infraestrutura
-docker-compose -f docker-compose.dev.yml up -d
+# Reinicia apenas a aplicação (mantém Docker rodando)
+.\restart.ps1
+```
+
+---
+
+## 📝 Scripts Disponíveis
+
+| Script | Descrição | Uso |
+|--------|-----------|-----|
+| `start.ps1` | Inicia infraestrutura completa e aplicação | `.\start.ps1` |
+| `stop.ps1` | Para todos os serviços (app + Docker) | `.\stop.ps1` |
+| `restart.ps1` | Reinicia apenas a aplicação Spring Boot | `.\restart.ps1` |
+
+**Serviços após inicialização:**
+
+| Serviço | Endpoint | Descrição |
+|---------|----------|-----------|
+| gRPC API | `localhost:9090` | API principal (Postman/grpcurl) |
+| REST API | `http://localhost:8081` | Autenticação e health checks |
+| Actuator | `http://localhost:8081/actuator/health` | Monitoramento |
+| MongoDB | `localhost:27017` | Banco de dados |
+| Kafka | `localhost:9092` | Message broker |
+| Kafka UI | `http://localhost:8080` | Interface web do Kafka |
+| MinIO | `http://localhost:9000` | Armazenamento de arquivos |
+| MinIO Console | `http://localhost:9001` | Interface web do MinIO |
+
+---
+
+## 🏗️ Arquitetura
 
 # 2. MinIO
 docker start minio
@@ -185,27 +227,32 @@ java -jar target/meu-projeto-chat-1.0.0-SNAPSHOT.jar
 ```
 ┌────────────────────────────────────────────────────────────┐
 │                    CLIENT LAYER                             │
-│  Mobile Apps, Web Apps, gRPC Clients                       │
+│  Mobile Apps, Web Apps, gRPC Clients, Postman              │
 └─────────────────┬──────────────────────────────────────────┘
                   │ gRPC (9090) / REST (8081)
 ┌─────────────────▼──────────────────────────────────────────┐
 │                  CHAT API (Spring Boot)                     │
 ├─────────────────────────────────────────────────────────────┤
-│  ChatServiceImpl │ ConversationServiceImpl │ FileServiceImpl│
+│  ChatServiceImpl │ ConversationServiceImpl │ FileController │
 │  (gRPC)          │ (gRPC)                  │ (REST)         │
 └────────┬─────────────────┬─────────────────┬────────────────┘
          │                 │                 │
-         │ Kafka Publish   │ Direct Query    │ Pre-signed URL
+         │ Kafka Events    │ Direct Query    │ MinIO Upload
          ▼                 ▼                 ▼
 ┌────────────────┐  ┌─────────────┐  ┌────────────────┐
 │  Apache Kafka  │  │   MongoDB   │  │     MinIO      │
-│  (Events)      │  │ (Messages)  │  │    (Files)     │
+│  (Events)      │  │ (Messages)  │  │  (S3 Files)    │
 └────────┬───────┘  └─────────────┘  └────────────────┘
          │
-         │ Consume
+         │ Consumer Workers
          ▼
 ┌────────────────────────────────────────────┐
-│     BACKGROUND WORKERS (Kafka Consumers)   │
+│  MessageDeliveryWorker                     │
+│  MessageStateUpdateWorker                  │
+│  WhatsAppMessageWorker (Mock)              │
+│  InstagramMessageWorker (Mock)             │
+└────────────────────────────────────────────┘
+```
 │  MessageDeliveryWorker                     │
 │  MessageStateUpdateWorker                  │
 │  PlatformMessageWorker                     │
@@ -547,10 +594,74 @@ k6 run --vus 5000 --duration 10m k6-benchmark-10k-users.js
 
 ## 🔧 Troubleshooting
 
-### Quick Diagnostics
+### Problemas Comuns
+
+**1. Kafka não inicia**
+```powershell
+# Limpar estado do Zookeeper
+docker-compose down
+docker-compose up -d
+```
+
+**2. Porta já em uso**
+```powershell
+# Verificar o que está usando a porta
+netstat -ano | findstr :9090
+
+# Matar processo se necessário
+Stop-Process -Id <PID> -Force
+```
+
+**3. Aplicação não conecta ao MongoDB**
+```powershell
+# Verificar se MongoDB está rodando
+docker ps | findstr mongodb
+
+# Ver logs
+docker logs mongodb-dev
+```
+
+**4. Erro de compilação Protobuf**
+```powershell
+# Limpar e recompilar
+mvn clean compile -DskipTests
+```
+
+### Logs Úteis
 
 ```powershell
-# Check all services
+# Logs da aplicação Spring Boot
+# (visível na janela onde rodou start.ps1)
+
+# Logs do MongoDB
+docker logs -f mongodb-dev
+
+# Logs do Kafka
+docker logs -f kafka-dev
+
+# Verificar health
+curl http://localhost:8081/actuator/health
+```
+
+### Monitoramento
+
+- **Kafka UI**: http://localhost:8080
+- **MinIO Console**: http://localhost:9001 (admin/password)
+- **Actuator Health**: http://localhost:8081/actuator/health
+- **Metrics**: http://localhost:8081/actuator/prometheus
+
+---
+
+## 📞 Contato e Suporte
+
+- **Documentação Completa**: [DOC_REVISADA/](DOC_REVISADA/)
+- **Guias Técnicos**: [docs/](docs/)
+
+---
+
+**Versão**: 1.0.0  
+**Status**: ✅ Production Ready  
+**Última atualização**: Dezembro 2025
 docker compose ps
 
 # View logs
@@ -700,99 +811,87 @@ docker compose -f docker-compose.dev.yml up -d
 mvn clean install
 
 # Run application
-mvn spring-boot:run
+### Stack Tecnológica
+
+| Camada | Tecnologia | Versão |
+|--------|------------|--------|
+| **Backend** | Spring Boot | 3.2.5 |
+| **API** | gRPC / REST | 1.64.0 |
+| **Mensageria** | Apache Kafka | 3.6.1 |
+| **Banco de Dados** | MongoDB | 7.0 |
+| **Armazenamento** | MinIO (S3) | latest |
+| **Monitoramento** | Prometheus + Grafana | latest |
+| **Containerização** | Docker Compose | latest |
+
+### Principais Features
+
+- 💬 Mensagens 1:1 e em grupo
+- 📁 Upload de arquivos (até 2GB)
+- 🔄 Processamento assíncrono com Kafka
+- 📊 Rastreamento de estado (SENT → DELIVERED → READ)
+- 🔌 Webhooks multiplataforma (WhatsApp, Instagram - mocks)
+- 📈 Métricas e monitoramento
+- 🔐 Sanitização de inputs e segurança
+
+---
+
+## 📚 Documentação
+
+### Guias Principais
+
+| Documento | Descrição |
+|-----------|-----------|
+| [DOC_REVISADA/](DOC_REVISADA/) | **Documentação completa do projeto** (11 arquivos) |
+| [GUIA-POSTMAN-GRPC.md](docs/GUIA-POSTMAN-GRPC.md) | Como testar a API com Postman |
+| [GUIA-GRAFANA-METRICAS.md](docs/GUIA-GRAFANA-METRICAS.md) | Dashboards e métricas |
+| [TELEGRAM-INTEGRATION-GUIDE.md](docs/TELEGRAM-INTEGRATION-GUIDE.md) | Integração com Telegram |
+
+### Estrutura de Documentação
+
+```
+DOC_REVISADA/
+├── 00-INDICE.md                           # Índice geral
+├── 01-ARQUITETURA-E-DESIGN.md            # Arquitetura do sistema
+├── 02-API-GRPC-E-CONTRATOS.md            # Contratos gRPC/Protobuf
+├── 03-AUTENTICACAO-E-SEGURANCA.md        # JWT e segurança
+├── 04-KAFKA-E-PROCESSAMENTO-ASSINCRONO.md # Event-driven architecture
+├── 05-MONGODB-E-PERSISTENCIA.md          # Modelo de dados
+├── 06-UPLOAD-ARQUIVOS-E-MINIO.md         # Upload multipart
+├── 07-STATUS-E-STREAMING-TEMPO-REAL.md   # SSE e rastreamento
+├── 08-WEBHOOKS-E-INTEGRACAO-PLATAFORMAS.md # Adaptadores
+├── 09-OBSERVABILIDADE-E-MONITORAMENTO.md # Prometheus/Grafana
+├── 10-TESTES-E-QUALIDADE.md              # Testes e cobertura
+└── 11-SCRIPTS-E-DEPLOYMENT.md            # DevOps e deployment
+
+docs/
+├── arquitetura/                           # Diagramas e design
+├── database/                              # Otimizações MongoDB
+├── implementacao/                         # Checklists de implementação
+├── kafka/                                 # Configurações Kafka
+├── observabilidade/                       # Dashboards Grafana
+└── runbooks/                              # Deployment e troubleshooting
 ```
 
-### Code Style
+---
 
-- **Java**: Google Java Style Guide
-- **Formatting**: `mvn spotless:apply`
-- **Linting**: `mvn checkstyle:check`
+## 🧪 Testes
 
-### Pull Request Process
+### Executar Testes
 
-1. Fork do projeto
-2. Criar feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit mudanças (`git commit -m 'Add amazing feature'`)
-4. Push para branch (`git push origin feature/amazing-feature`)
-5. Abrir Pull Request
+```powershell
+# Testes unitários
+mvn test
 
-**PR Checklist**:
-- [ ] Tests pass (`mvn test`)
-- [ ] Code formatted (`mvn spotless:check`)
-- [ ] Documentation updated
-- [ ] No breaking changes (or documented)
+# Testes de integração (requer Docker)
+mvn verify -P integration-tests
 
-### CI/CD Pipeline
+# Cobertura de código
+mvn test jacoco:report
+# Relatório: target/site/jacoco/index.html
+```
 
-**GitHub Actions** (`.github/workflows/ci.yml`):
-- ✅ Build & compile Protobuf
-- ✅ Run unit tests
-- ✅ Generate coverage report
-- ✅ Build Docker image
-- ✅ Security scan (OWASP Dependency Check)
-- ✅ Code quality (SpotBugs, PMD)
+**Cobertura atual**: 85% (meta: 80%)
 
 ---
 
-## 📊 Project Status
-
-### Implementation Progress: 98/106 tasks (92%)
-
-**Completed Phases**:
-- ✅ Phase 1-8: All user stories (messaging, files, groups, multi-platform)
-- ✅ Phase 9: Observability (Prometheus, Grafana, metrics)
-- ✅ Phase 10: Real-time streaming (SSE)
-- ✅ Phase 11: Polish (9/12 tasks)
-
-**Remaining Tasks**:
-- ⏳ T099: JavaDoc comments (service layer)
-- ⏳ T104: Validate quickstart.md
-
-**Production Readiness**: ✅ **READY**
-- Performance validated (10k users, p95 <100ms)
-- Security hardened (OWASP compliance)
-- Monitoring configured (Prometheus + Grafana)
-- CI/CD pipeline active (GitHub Actions)
-- Runbooks documented (deployment, troubleshooting)
-
----
-
-## 📄 Licença
-
-MIT License - veja [LICENSE](LICENSE) para detalhes.
-
----
-
-## 📞 Suporte
-
-- **Documentação**: [docs/](docs/)
-- **Issues**: [GitHub Issues](https://github.com/your-org/chat-api/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/your-org/chat-api/discussions)
-
----
-
-**Última atualização**: 01 de Dezembro de 2025  
-**Versão**: 1.0.0  
-**Status**: ✅ **Production Ready**
-
----
-
-## 🎓 Learning Resources
-
-Este projeto demonstra conceitos avançados de sistemas distribuídos:
-
-- **Event-Driven Architecture**: CQRS, Event Sourcing
-- **Message Queues**: Apache Kafka (partitioning, consumer groups, at-least-once delivery)
-- **NoSQL Databases**: MongoDB (replica sets, compound indexes, denormalization)
-- **Object Storage**: MinIO/S3 (pre-signed URLs, multipart uploads)
-- **Observability**: Metrics (Prometheus), Dashboards (Grafana), Structured Logging
-- **Resilience Patterns**: Circuit Breakers, Rate Limiting, Retries, Backpressure
-- **API Design**: gRPC (Protobuf), REST (OpenAPI), Idempotency
-- **Performance**: Load Testing (k6), Horizontal Scaling, Connection Pooling
-
-**Ideal para**:
-- Estudantes de Engenharia de Software
-- Desenvolvedores aprendendo arquitetura de microsserviços
-- Arquitetos avaliando padrões de mensageria
-- Equipes buscando referência para projetos distribuídos
+## 🔧 Troubleshooting

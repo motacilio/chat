@@ -103,13 +103,16 @@ public class MessageStateUpdateWorker {
                 stateHistory = new ArrayList<>();
             }
             
-            // Idempotency check - if state already exists, skip
+            // Idempotency check - for group messages, check state + recipient_id combination
+            // (multiple users can have same status, e.g., READ, but for different recipients)
+            String userId = event.getUserId();
             boolean stateExists = stateHistory.stream()
-                    .anyMatch(st -> st.getState() == newStatus);
+                    .anyMatch(st -> st.getState() == newStatus && 
+                             (userId == null || userId.equals(st.getRecipientId())));
             
             if (stateExists) {
-                logger.info("State transition already exists (idempotency check) - message_id: {}, status: {}, skipping",
-                        messageId, newStatus);
+                logger.info("State transition already exists (idempotency check) - message_id: {}, status: {}, user_id: {}, skipping",
+                        messageId, newStatus, userId);
                 acknowledgment.acknowledge();
                 return;
             }

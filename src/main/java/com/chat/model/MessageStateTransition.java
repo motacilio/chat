@@ -3,6 +3,7 @@ package com.chat.model;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.springframework.data.mongodb.core.mapping.Field;
 
 import java.time.Instant;
 
@@ -25,11 +26,13 @@ public class MessageStateTransition {
     /**
      * State value: SENT, DELIVERED, or READ
      */
+    @Field("state")
     private MessageStatus state;
     
     /**
      * When state transition occurred
      */
+    @Field("timestamp")
     private Instant timestamp;
     
     /**
@@ -37,6 +40,7 @@ public class MessageStateTransition {
      * Null for SENT state (applies to all recipients).
      * Set to user_id for DELIVERED/READ states.
      */
+    @Field("recipient_id")
     private String recipientId;
     
     /**

@@ -19,6 +19,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 
 import java.time.Instant;
+import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * ChatService gRPC Implementation (T032)
@@ -88,11 +90,31 @@ public class ChatServiceImpl extends ChatServiceGrpc.ChatServiceImplBase {
     @Override
     public void sendMessage(SendMessageRequest request, StreamObserver<SendMessageResponse> responseObserver) {
         try {
-            String messageId = request.getMessageId();
+            // Server generates message_id (prevents client conflicts and ensures uniqueness)
+            String messageId = UuidValidator.generate();
             String conversationId = request.getConversationId();
             String senderId = request.getSenderId();
             String recipientId = request.getRecipientId();
             String messageText = request.getMessageText();
+            
+            // SECURITY: Validate sender_id matches authenticated user from JWT token
+            String authenticatedUserId = com.chat.security.AuthenticationInterceptor.USER_ID_CONTEXT_KEY.get();
+            if (authenticatedUserId == null) {
+                logger.error("SECURITY: No authenticated user in context");
+                responseObserver.onError(Status.UNAUTHENTICATED
+                        .withDescription("Authentication required")
+                        .asRuntimeException());
+                return;
+            }
+            
+            if (!senderId.equals(authenticatedUserId)) {
+                logger.error("SECURITY: sender_id mismatch - token userId: {}, request senderId: {}", 
+                            authenticatedUserId, senderId);
+                responseObserver.onError(Status.PERMISSION_DENIED
+                        .withDescription("sender_id must match authenticated user")
+                        .asRuntimeException());
+                return;
+            }
             
             // Rate limiting: Check if user exceeded 100 messages/minute
             try {
@@ -119,6 +141,7 @@ public class ChatServiceImpl extends ChatServiceGrpc.ChatServiceImplBase {
                     .setMessageId(messageId)
                     .setConversationId(conversationId)
                     .setSenderId(senderId)
+                    .addRecipientIds(recipientId)  // Add recipient for platform routing
                     .setMessageText(messageText)
                     .setSequenceNumber(sequenceNumber)
                     .setTimestamp(Timestamps.fromMillis(now.toEpochMilli()))
@@ -135,10 +158,12 @@ public class ChatServiceImpl extends ChatServiceGrpc.ChatServiceImplBase {
             // Build response
             SendMessageResponse response = SendMessageResponse.newBuilder()
                     .setMessageId(messageId)
+                    .setStatus(com.chat.grpc.v1.MessageStatus.SENT)  // Initial status
                     .setTimestamp(Timestamp.newBuilder()
                             .setSeconds(now.getEpochSecond())
                             .setNanos(now.getNano())
                             .build())
+                    .setSequenceNumber(sequenceNumber)  // Message ordering number
                     .build();
             
             responseObserver.onNext(response);
@@ -158,6 +183,7 @@ public class ChatServiceImpl extends ChatServiceGrpc.ChatServiceImplBase {
      * GetMessageStatus gRPC endpoint (T040 - User Story 2).
      * 
      * Queries Message.stateHistory from MongoDB and returns current status with transition timeline.
+     * For group messages, builds per-recipient status showing who read the message.
      * 
      * @param request  GetMessageStatusRequest from client
      * @param responseObserver gRPC response stream
@@ -168,15 +194,26 @@ public class ChatServiceImpl extends ChatServiceGrpc.ChatServiceImplBase {
             String messageId = request.getMessageId();
             UuidValidator.validateOrThrow(messageId, "message_id");
             
-            // Query current status from MessageService
-            com.chat.model.MessageStatus status = messageService.getCurrentStatus(messageId);
+            // Query message with complete state history from MessageService
+            com.chat.model.Message message = messageService.getMessage(messageId);
             
-            // Map to protobuf enum
-            com.chat.grpc.v1.MessageStatus protoStatus = mapStatusToProto(status);
+            // Map complete state history to protobuf
+            List<com.chat.grpc.v1.MessageStateTransition> protoStateHistory = message.getStateHistory()
+                    .stream()
+                    .map(this::mapStateTransitionToProto)
+                    .collect(java.util.stream.Collectors.toList());
+            
+            // Build per-recipient read status for groups
+            List<com.chat.grpc.v1.RecipientReadStatus> recipientStatuses = buildRecipientStatuses(message);
+            
+            // Calculate intelligent current_status based on recipient statuses
+            com.chat.grpc.v1.MessageStatus protoStatus = calculateOverallStatus(recipientStatuses);
             
             GetMessageStatusResponse response = GetMessageStatusResponse.newBuilder()
                     .setMessageId(messageId)
+                    .addAllStateHistory(protoStateHistory)
                     .setCurrentStatus(protoStatus)
+                    .addAllRecipientStatus(recipientStatuses)
                     .build();
             
             responseObserver.onNext(response);
@@ -188,6 +225,115 @@ public class ChatServiceImpl extends ChatServiceGrpc.ChatServiceImplBase {
             logger.error("Unexpected error in getMessageStatus", e);
             responseObserver.onError(exceptionHandler.handleGenericException(e));
         }
+    }
+    
+    /**
+     * Build per-recipient read status from state history.
+     * Shows who read the message (for groups) or single recipient status (for 1:1).
+     * 
+     * @param message Message entity with state history
+     * @return List of RecipientReadStatus (one per recipient)
+     */
+    private List<com.chat.grpc.v1.RecipientReadStatus> buildRecipientStatuses(com.chat.model.Message message) {
+        // Get conversation to know ALL participants
+        com.chat.model.Conversation conversation = messageService.getConversationForMessage(message.getMessageId());
+        
+        // Group state transitions by recipient_id
+        java.util.Map<String, java.util.List<com.chat.model.MessageStateTransition>> transitionsByRecipient = 
+            message.getStateHistory()
+                .stream()
+                .filter(t -> t.getRecipientId() != null && !t.getRecipientId().isEmpty())
+                .filter(t -> t.getState() != com.chat.model.MessageStatus.SENT) // Exclude SENT
+                .collect(java.util.stream.Collectors.groupingBy(
+                    com.chat.model.MessageStateTransition::getRecipientId
+                ));
+        
+        // Build status for ALL participants (not just those who interacted)
+        // Exclude sender from recipient list (sender doesn't "receive" their own message)
+        return conversation.getParticipants().stream()
+            .filter(participantId -> !participantId.equals(message.getSenderId()))
+            .map(participantId -> {
+                // Get transitions for this specific participant
+                java.util.List<com.chat.model.MessageStateTransition> transitions = 
+                    transitionsByRecipient.getOrDefault(participantId, java.util.Collections.emptyList());
+                
+                // Find DELIVERED and READ timestamps for this participant
+                com.google.protobuf.Timestamp deliveredAt = null;
+                com.google.protobuf.Timestamp readAt = null;
+                com.chat.grpc.v1.MessageStatus status = com.chat.grpc.v1.MessageStatus.SENT;
+                
+                for (com.chat.model.MessageStateTransition t : transitions) {
+                    if (t.getState() == com.chat.model.MessageStatus.DELIVERED) {
+                        deliveredAt = toProtobufTimestamp(t.getTimestamp());
+                        status = com.chat.grpc.v1.MessageStatus.DELIVERED;
+                    } else if (t.getState() == com.chat.model.MessageStatus.READ) {
+                        readAt = toProtobufTimestamp(t.getTimestamp());
+                        status = com.chat.grpc.v1.MessageStatus.READ;
+                    }
+                }
+                
+                com.chat.grpc.v1.RecipientReadStatus.Builder builder = com.chat.grpc.v1.RecipientReadStatus.newBuilder()
+                        .setUserId(participantId)
+                        .setStatus(status);
+                
+                if (deliveredAt != null) {
+                    builder.setDeliveredAt(deliveredAt);
+                }
+                if (readAt != null) {
+                    builder.setReadAt(readAt);
+                }
+                
+                return builder.build();
+            })
+            .collect(java.util.stream.Collectors.toList());
+    }
+    
+    /**
+     * Calculate overall message status based on all recipients' statuses.
+     * 
+     * Logic:
+     * - SENT: All recipients still in SENT state (none received)
+     * - DELIVERED: All recipients in SENT or DELIVERED (none read yet)
+     * - PARTIALLY_READ: Some recipients read, others didn't
+     * - READ: All recipients read the message
+     * 
+     * @param recipientStatuses List of recipient read statuses
+     * @return Overall MessageStatus
+     */
+    private com.chat.grpc.v1.MessageStatus calculateOverallStatus(
+            List<com.chat.grpc.v1.RecipientReadStatus> recipientStatuses) {
+        
+        if (recipientStatuses.isEmpty()) {
+            return com.chat.grpc.v1.MessageStatus.SENT;
+        }
+        
+        long readCount = recipientStatuses.stream()
+                .filter(r -> r.getStatus() == com.chat.grpc.v1.MessageStatus.READ)
+                .count();
+        
+        long deliveredCount = recipientStatuses.stream()
+                .filter(r -> r.getStatus() == com.chat.grpc.v1.MessageStatus.DELIVERED)
+                .count();
+        
+        int totalRecipients = recipientStatuses.size();
+        
+        // All recipients read the message
+        if (readCount == totalRecipients) {
+            return com.chat.grpc.v1.MessageStatus.READ;
+        }
+        
+        // Some recipients read, others didn't
+        if (readCount > 0) {
+            return com.chat.grpc.v1.MessageStatus.PARTIALLY_READ;
+        }
+        
+        // At least one recipient received (but none read yet)
+        if (deliveredCount > 0) {
+            return com.chat.grpc.v1.MessageStatus.DELIVERED;
+        }
+        
+        // All recipients still in SENT state
+        return com.chat.grpc.v1.MessageStatus.SENT;
     }
     
     /**
@@ -209,6 +355,25 @@ public class ChatServiceImpl extends ChatServiceGrpc.ChatServiceImplBase {
             UuidValidator.validateOrThrow(messageId, "message_id");
             UuidValidator.validateOrThrow(userId, "user_id");
             
+            // SECURITY: Validate user_id matches authenticated user from JWT token
+            String authenticatedUserId = com.chat.security.AuthenticationInterceptor.USER_ID_CONTEXT_KEY.get();
+            if (authenticatedUserId == null) {
+                logger.error("SECURITY: No authenticated user in context");
+                responseObserver.onError(Status.UNAUTHENTICATED
+                        .withDescription("Authentication required")
+                        .asRuntimeException());
+                return;
+            }
+            
+            if (!userId.equals(authenticatedUserId)) {
+                logger.error("SECURITY: user_id mismatch - token userId: {}, request userId: {}", 
+                            authenticatedUserId, userId);
+                responseObserver.onError(Status.PERMISSION_DENIED
+                        .withDescription("user_id must match authenticated user")
+                        .asRuntimeException());
+                return;
+            }
+            
             // Validate user is participant (T042 authorization check)
             String conversationId = messageService.markAsRead(messageId, userId);
             
@@ -226,6 +391,7 @@ public class ChatServiceImpl extends ChatServiceGrpc.ChatServiceImplBase {
             stateKafkaTemplate.send(STATE_UPDATE_EVENTS_TOPIC, messageId, stateEvent);
             MarkMessageAsReadResponse response = MarkMessageAsReadResponse.newBuilder()
                     .setMessageId(messageId)
+                    .setStatus(com.chat.grpc.v1.MessageStatus.READ)
                     .setTimestamp(Timestamp.newBuilder()
                             .setSeconds(now.getEpochSecond())
                             .setNanos(now.getNano())
@@ -263,6 +429,35 @@ public class ChatServiceImpl extends ChatServiceGrpc.ChatServiceImplBase {
             default:
                 return com.chat.grpc.v1.MessageStatus.MESSAGE_STATUS_UNSPECIFIED;
         }
+    }
+    
+    /**
+     * Map domain MessageStateTransition to protobuf MessageStateTransition.
+     */
+    private com.chat.grpc.v1.MessageStateTransition mapStateTransitionToProto(
+            com.chat.model.MessageStateTransition transition) {
+        
+        com.chat.grpc.v1.MessageStateTransition.Builder builder = 
+                com.chat.grpc.v1.MessageStateTransition.newBuilder()
+                        .setState(mapStatusToProto(transition.getState()))
+                        .setTimestamp(toProtobufTimestamp(transition.getTimestamp()));
+        
+        // recipient_id is optional (only present for DELIVERED and READ states)
+        if (transition.getRecipientId() != null && !transition.getRecipientId().isEmpty()) {
+            builder.setRecipientId(transition.getRecipientId());
+        }
+        
+        return builder.build();
+    }
+    
+    /**
+     * Convert Java Instant to protobuf Timestamp.
+     */
+    private com.google.protobuf.Timestamp toProtobufTimestamp(java.time.Instant instant) {
+        return com.google.protobuf.Timestamp.newBuilder()
+                .setSeconds(instant.getEpochSecond())
+                .setNanos(instant.getNano())
+                .build();
     }
     
     /**
@@ -304,6 +499,25 @@ public class ChatServiceImpl extends ChatServiceGrpc.ChatServiceImplBase {
         try {
             String userId = request.getUserId();
             UuidValidator.validateOrThrow(userId, "user_id");
+            
+            // SECURITY: Validate user_id matches authenticated user from JWT token
+            String authenticatedUserId = com.chat.security.AuthenticationInterceptor.USER_ID_CONTEXT_KEY.get();
+            if (authenticatedUserId == null) {
+                logger.error("SECURITY: No authenticated user in context");
+                responseObserver.onError(Status.UNAUTHENTICATED
+                        .withDescription("Authentication required")
+                        .asRuntimeException());
+                return;
+            }
+            
+            if (!userId.equals(authenticatedUserId)) {
+                logger.error("SECURITY: user_id mismatch - token userId: {}, request userId: {}", 
+                            authenticatedUserId, userId);
+                responseObserver.onError(Status.PERMISSION_DENIED
+                        .withDescription("user_id must match authenticated user")
+                        .asRuntimeException());
+                return;
+            }
             
             // Register stream in StreamingService
             streamingService.subscribeToMessages(userId, responseObserver);

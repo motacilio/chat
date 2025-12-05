@@ -51,16 +51,18 @@ service ChatService {
 /**
  * SendMessageRequest
  * Submit text message to conversation (FR-001)
+ * 
+ * NOTE: message_id is NOT in request - server generates UUID automatically
+ * This prevents client ID conflicts and ensures proper idempotency
  */
 message SendMessageRequest {
-  string message_id = 1;         // UUID (client-generated for idempotency per FR-003)
-  string conversation_id = 2;    // Target conversation UUID
-  string sender_id = 3;          // Sending user UUID (extracted from auth token in production)
-  string recipient_id = 4;       // Recipient user UUID (required for auto-created conversations per FR-004a)
-  string message_text = 5;       // Text content (max 100 KB per edge case)
+  string conversation_id = 1;    // Target conversation UUID
+  string sender_id = 2;          // Sending user UUID (extracted from auth token in production)
+  string recipient_id = 3;       // OPTIONAL: Only for 1:1 auto-create (FR-004a). Ignored for GROUP conversations.
+  string message_text = 4;       // Text content (max 100 KB per edge case)
   
   // Optional: Message metadata
-  map<string, string> metadata = 6;  // Future: reply_to_message_id, mentions, etc.
+  map<string, string> metadata = 5;  // Future: reply_to_message_id, mentions, etc.
 }
 
 /**
@@ -121,20 +123,32 @@ message StatusUpdateEvent {
 
 /**
  * GetMessageStatusRequest
- * Query message state history (FR-004)
+ * Query message state history showing who read/received the message
  */
 message GetMessageStatusRequest {
   string message_id = 1;  // UUID of message to query
 }
 
 /**
+ * RecipientReadStatus
+ * Shows read status for each recipient in the conversation
+ */
+message RecipientReadStatus {
+  string user_id = 1;           // Recipient user ID
+  MessageStatus status = 2;     // Current status for this recipient (DELIVERED or READ)
+  google.protobuf.Timestamp delivered_at = 3;  // When message was delivered to this user
+  google.protobuf.Timestamp read_at = 4;       // When user marked as read (null if not read)
+}
+
+/**
  * GetMessageStatusResponse
- * Returns complete state transition history
+ * Returns complete state transition history + per-recipient read status
  */
 message GetMessageStatusResponse {
   string message_id = 1;
-  repeated MessageStateTransition state_history = 2;  // Chronological state transitions
-  MessageStatus current_status = 3;                    // Derived from last entry in state_history
+  repeated MessageStateTransition state_history = 2;  // Complete chronological history
+  MessageStatus current_status = 3;                    // Overall status (SENT/DELIVERED/READ)
+  repeated RecipientReadStatus recipient_status = 4;  // Per-recipient read status (for groups)
 }
 
 /**

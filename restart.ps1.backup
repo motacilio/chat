@@ -1,0 +1,127 @@
+﻿# Script de Restart Completo
+Write-Host "`n========================================" -ForegroundColor Cyan
+Write-Host "  RESTART COMPLETO - Chat Application   " -ForegroundColor Yellow
+Write-Host "========================================`n" -ForegroundColor Cyan
+
+# 1. Parar aplicacao
+Write-Host "[1/6] Parando processos Java..." -ForegroundColor Yellow
+$javaProcesses = Get-Process -Name java -ErrorAction SilentlyContinue
+if ($javaProcesses) {
+    Write-Host "  Parando $($javaProcesses.Count) processo(s)..." -ForegroundColor Gray
+    Stop-Process -Name java -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 5
+    
+    $remaining = Get-Process -Name java -ErrorAction SilentlyContinue
+    if ($remaining) {
+        Write-Host "  Aviso: Tentando parar processos restantes..." -ForegroundColor Yellow
+        Stop-Process -Name java -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 5
+        
+        $stillRunning = Get-Process -Name java -ErrorAction SilentlyContinue
+        if ($stillRunning) {
+            Write-Host "  ERRO: Nao foi possivel parar todos os processos Java" -ForegroundColor Red
+            Write-Host "  Pare manualmente ou reinicie o computador`n" -ForegroundColor Yellow
+            exit 1
+        }
+    }
+}
+Write-Host "  OK: Processos parados`n" -ForegroundColor Green
+
+# 2. Iniciar Docker Compose (Kafka, Zookeeper, MongoDB)
+Write-Host "[2/6] Reiniciando infraestrutura (Kafka, Zookeeper, MongoDB)..." -ForegroundColor Yellow
+Write-Host "  Parando containers existentes..." -ForegroundColor Gray
+docker-compose -f docker-compose.dev.yml down
+
+Write-Host "  Removendo volumes antigos (limpa estado Kafka/Zookeeper)..." -ForegroundColor Gray
+docker-compose -f docker-compose.dev.yml down -v
+
+Write-Host "  Iniciando containers..." -ForegroundColor Gray
+docker-compose -f docker-compose.dev.yml up -d
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "  ERRO ao iniciar Docker Compose`n" -ForegroundColor Red
+    exit 1
+}
+Write-Host "  OK: Infraestrutura iniciada" -ForegroundColor Green
+Write-Host "  Aguardando Kafka estar pronto (20s)...`n" -ForegroundColor Gray
+Start-Sleep -Seconds 20
+
+# 3. Limpar e recompilar (incluindo protobuf)
+Write-Host "[3/6] Limpando projeto..." -ForegroundColor Yellow
+mvn clean -q
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "  ERRO ao limpar projeto`n" -ForegroundColor Red
+    exit 1
+}
+Write-Host "  OK: Projeto limpo`n" -ForegroundColor Green
+
+# 4. Compilar (gera protobuf + compila Java)
+Write-Host "[4/6] Compilando projeto (incluindo protobuf)..." -ForegroundColor Yellow
+mvn compile -DskipTests -B
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "  ERRO na compilacao - verifique os erros acima`n" -ForegroundColor Red
+    exit 1
+}
+Write-Host "  OK: Compilacao bem-sucedida`n" -ForegroundColor Green
+
+# 5. Empacotar JAR
+Write-Host "[5/6] Empacotando JAR..." -ForegroundColor Yellow
+mvn package -DskipTests -B
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "  ERRO ao empacotar JAR`n" -ForegroundColor Red
+    exit 1
+}
+
+# Verificar JAR
+if (Test-Path "target\meu-projeto-chat-1.0.0-SNAPSHOT.jar") {
+    $jar = Get-Item "target\meu-projeto-chat-1.0.0-SNAPSHOT.jar"
+    Write-Host "  OK: JAR criado com sucesso" -ForegroundColor Green
+    Write-Host "    Tamanho: $([math]::Round($jar.Length/1MB, 2)) MB" -ForegroundColor Gray
+    Write-Host "    Data: $($jar.LastWriteTime)`n" -ForegroundColor Gray
+} else {
+    Write-Host "  ERRO: JAR nao encontrado`n" -ForegroundColor Red
+    exit 1
+}
+
+# 6. Iniciar aplicacao
+Write-Host "[6/6] Iniciando aplicacao..." -ForegroundColor Yellow
+Write-Host "  Aplicacao sera iniciada em background`n" -ForegroundColor Cyan
+Write-Host "========================================`n" -ForegroundColor Cyan
+
+# Iniciar em background (sem nova janela, mantem rodando)
+# Redirecionar saída para arquivo de log
+$javaProcess = Start-Process -FilePath "java" `
+    -ArgumentList "-jar","target\meu-projeto-chat-1.0.0-SNAPSHOT.jar" `
+    -PassThru `
+    -NoNewWindow `
+    -RedirectStandardOutput "app.log" `
+    -RedirectStandardError "app-error.log"
+
+# Aguardar inicializacao
+Write-Host "`nAguardando aplicacao iniciar (30s)..." -ForegroundColor Yellow
+Start-Sleep -Seconds 30
+
+# Verificar se esta rodando
+Write-Host "`nVerificando status da aplicacao..." -ForegroundColor Yellow
+
+try {
+    $health = Invoke-RestMethod -Uri "http://localhost:8081/actuator/health" -Method GET -TimeoutSec 5
+    Write-Host "`n========================================" -ForegroundColor Green
+    Write-Host "  OK: APLICACAO RODANDO" -ForegroundColor Green
+    Write-Host "========================================" -ForegroundColor Green
+    Write-Host "  Status: $($health.status)" -ForegroundColor Gray
+    Write-Host "  PID: $($javaProcess.Id)" -ForegroundColor Gray
+} catch {
+    Write-Host "`n========================================" -ForegroundColor Yellow
+    Write-Host "  APLICACAO AINDA INICIANDO" -ForegroundColor Yellow
+    Write-Host "========================================" -ForegroundColor Yellow
+    Write-Host "  A aplicacao pode levar mais tempo para iniciar" -ForegroundColor Gray
+    Write-Host "  Verifique os logs acima para erros" -ForegroundColor Gray
+    Write-Host "  Tente acessar: http://localhost:8081/actuator/health" -ForegroundColor Gray
+}
+
+Write-Host "`nProximos passos:" -ForegroundColor Cyan
+Write-Host "  1. Verifique se viu 'gRPC Server started, listening on port 9090'" -ForegroundColor White
+Write-Host "  2. Execute: .\GUIA-TESTES-JWT.ps1" -ForegroundColor White

@@ -41,6 +41,7 @@ public class UserService {
      * Users:
      * - alice (password123) - ROLE_USER - UUID: a1a1a1a1-1111-1111-1111-111111111111
      * - bob (password123) - ROLE_USER - UUID: b2b2b2b2-2222-2222-2222-222222222222
+     * - charlie (password123) - ROLE_USER - UUID: c3c3c3c3-3333-3333-3333-333333333333
      * - admin (admin123) - ROLE_ADMIN - UUID: 00000000-0000-0000-0000-000000000000
      * 
      * Production: Remove constructor, load users from MongoDB.
@@ -64,7 +65,16 @@ public class UserService {
                 .createdAt(Instant.now())
                 .build());
         
-        // POC Test User 3: Admin
+        // POC Test User 3: Charlie
+        users.put("charlie", AuthUser.builder()
+                .userId("c3c3c3c3-3333-3333-3333-333333333333")
+                .username("charlie")
+                .password("password123")  // WARNING: Plain text (POC only)
+                .role("ROLE_USER")
+                .createdAt(Instant.now())
+                .build());
+        
+        // POC Test User 4: Admin
         users.put("admin", AuthUser.builder()
                 .userId("00000000-0000-0000-0000-000000000000")
                 .username("admin")
@@ -87,6 +97,23 @@ public class UserService {
      */
     public Optional<AuthUser> findByUsername(String username) {
         return Optional.ofNullable(users.get(username));
+    }
+    
+    /**
+     * Finds user by user ID.
+     * 
+     * POC Implementation: Scan HashMap values for matching userId.
+     * 
+     * Production Implementation:
+     * return userRepository.findByUserId(userId);
+     * 
+     * @param userId User UUID
+     * @return Optional<AuthUser> containing user if found
+     */
+    public Optional<AuthUser> findByUserId(String userId) {
+        return users.values().stream()
+                .filter(user -> user.getUserId().equals(userId))
+                .findFirst();
     }
     
     /**

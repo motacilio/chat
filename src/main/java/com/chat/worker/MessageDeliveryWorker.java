@@ -2,6 +2,7 @@ package com.chat.worker;
 
 import com.chat.grpc.v1.NewMessageEvent;
 import com.chat.grpc.v1.UserInfo;
+import com.chat.model.AuthUser;
 import com.chat.model.Message;
 import com.chat.model.MessageStatus;
 import com.chat.model.MessageStateTransition;
@@ -9,6 +10,8 @@ import com.chat.repository.MessageRepository;
 import com.chat.service.ConversationService;
 import com.chat.service.PlatformRoutingService;
 import com.chat.service.StreamingService;
+import com.chat.service.UserService;
+import com.chat.websocket.WebSocketNotificationController;
 import com.google.protobuf.Timestamp;
 import com.google.protobuf.util.Timestamps;
 import io.micrometer.core.instrument.Counter;
@@ -54,6 +57,8 @@ public class MessageDeliveryWorker {
     private final ConversationService conversationService;
     private final StreamingService streamingService;
     private final PlatformRoutingService platformRoutingService;
+    private final UserService userService;
+    private final WebSocketNotificationController webSocketNotificationController;
     
     // Métricas Prometheus
     private final Counter messagesProcessedCounter;
@@ -66,11 +71,15 @@ public class MessageDeliveryWorker {
             ConversationService conversationService,
             StreamingService streamingService,
             PlatformRoutingService platformRoutingService,
+            UserService userService,
+            WebSocketNotificationController webSocketNotificationController,
             MeterRegistry meterRegistry) {
         this.messageRepository = messageRepository;
         this.conversationService = conversationService;
         this.streamingService = streamingService;
         this.platformRoutingService = platformRoutingService;
+        this.userService = userService;
+        this.webSocketNotificationController = webSocketNotificationController;
         
         // Inicializar métricas
         this.messagesProcessedCounter = Counter.builder("messages_processed_total")
@@ -154,30 +163,46 @@ public class MessageDeliveryWorker {
                         message.setTimestamp(timestamp);
                         
                         // T068: Initialize state history based on conversation type (fan-out for groups)
-                        // For PRIVATE (1:1): Single SENT state
+                        // For PRIVATE (1:1): SENT + DELIVERED states
                         // For GROUP: SENT + per-recipient DELIVERED states (fan-out pattern)
                         List<MessageStateTransition> stateHistory = new ArrayList<>();
-                        stateHistory.add(MessageStateTransition.create(MessageStatus.SENT, null));
+                        // SENT state should reference the sender (who created the message)
+                        stateHistory.add(MessageStateTransition.create(MessageStatus.SENT, event.getSenderId()));
                         
                         // Educational Note: Fan-out pattern for group messages
                         // Each recipient gets their own DELIVERED state tracked separately.
                         // This enables per-user acknowledgments and read receipts in group chats.
                         // Why? In a group with N members, we need to track N delivery confirmations.
                         // Example: Group with 3 users → 1 SENT + 3 DELIVERED states (one per recipient)
-                        if (event.getRecipientIdsCount() > 1) {
-                            // GROUP conversation - create per-recipient DELIVERED states (fan-out)
+                        if (event.getRecipientIdsCount() > 0) {
+                            // Create DELIVERED state for each recipient (works for both PRIVATE and GROUP)
+                            logger.debug("Processing recipients - message_id: {}, sender: {}, recipients: {}",
+                                    messageId, event.getSenderId(), event.getRecipientIdsList());
+                            
                             for (String recipientId : event.getRecipientIdsList()) {
                                 // Don't create DELIVERED for sender (they already know they sent it)
                                 if (!recipientId.equals(event.getSenderId())) {
                                     stateHistory.add(MessageStateTransition.create(MessageStatus.DELIVERED, recipientId));
+                                    logger.debug("Created DELIVERED state - message_id: {}, recipient_id: {}", 
+                                            messageId, recipientId);
+                                } else {
+                                    logger.debug("Skipped DELIVERED for sender - message_id: {}, sender_id: {}", 
+                                            messageId, recipientId);
                                 }
                             }
                             
-                            logger.debug("Fan-out delivery created - message_id: {}, recipients: {}, states: {}",
+                            logger.debug("Delivery states created - message_id: {}, recipients: {}, states: {}",
                                     messageId, event.getRecipientIdsCount(), stateHistory.size());
                         }
                         
                         message.setStateHistory(stateHistory);
+                        
+                        // Debug: Log state history before saving
+                        logger.debug("State history BEFORE save - message_id: {}, history: {}", 
+                                messageId, 
+                                stateHistory.stream()
+                                    .map(s -> String.format("state=%s, recipientId=%s", s.getState(), s.getRecipientId()))
+                                    .toList());
                         
                         // Persist to MongoDB
                         messageRepository.save(message);
@@ -201,11 +226,36 @@ public class MessageDeliveryWorker {
                             .orElseThrow(() -> new IllegalStateException("Message not found after save: " + messageId));
                     com.chat.grpc.v1.MessageEvent grpcMessageEvent = buildMessageEvent(message);
                     
-                    // Check if any participants are online and push via stream
-                    boolean deliveredViaStream = streamingService.notifyUserMessage(event.getSenderId(), grpcMessageEvent);
+                    // Check if this is a GROUP conversation - if so, broadcast to all participants
+                    boolean isGroupMessage = event.getRecipientIdsCount() > 1;
                     
-                    if (deliveredViaStream) {
-                        logger.debug("Message delivered to online user via stream - message_id: {}", messageId);
+                    if (isGroupMessage) {
+                        // Broadcast to group conversation topic (/topic/conversation/{conversationId})
+                        // All subscribers will receive this message simultaneously
+                        webSocketNotificationController.broadcastToGroup(conversationId, grpcMessageEvent);
+                        logger.info("Message broadcast to group conversation - message_id: {}, conversation_id: {}, participants: {}", 
+                                messageId, conversationId, event.getRecipientIdsCount());
+                    }
+                    
+                    // Push message to ALL recipients (not sender) via individual streams if they're online
+                    // This handles both 1-on-1 and group messages
+                    int onlineRecipientsCount = 0;
+                    for (String recipientId : event.getRecipientIdsList()) {
+                        // Don't send to sender (they already have the message)
+                        if (!recipientId.equals(event.getSenderId())) {
+                            boolean delivered = streamingService.notifyUserMessage(recipientId, grpcMessageEvent);
+                            if (delivered) {
+                                onlineRecipientsCount++;
+                            }
+                        }
+                    }
+                    
+                    if (onlineRecipientsCount > 0) {
+                        logger.info("Message delivered to {} online recipient(s) via stream - message_id: {}", 
+                                onlineRecipientsCount, messageId);
+                    } else {
+                        logger.debug("No online recipients for message - will be delivered via history query - message_id: {}", 
+                                messageId);
                     }
                 } else {
                     logger.info("Message already exists (idempotency check) - message_id: {}, skipping persistence but continuing routing", messageId);
@@ -242,17 +292,25 @@ public class MessageDeliveryWorker {
     /**
      * Build gRPC MessageEvent protobuf for streaming to online users.
      * 
+     * Optimization: Fetches complete user information (username) from UserService
+     * instead of using truncated user_id as username placeholder.
+     * 
      * @param message Persisted Message entity
      * @return gRPC MessageEvent protobuf for streaming
      */
     private com.chat.grpc.v1.MessageEvent buildMessageEvent(Message message) {
-        // Build NewMessageEvent
+        // Fetch sender information from UserService
+        String senderUsername = userService.findByUserId(message.getSenderId())
+                .map(AuthUser::getUsername)
+                .orElse("User-" + message.getSenderId().substring(0, 8));
+        
+        // Build NewMessageEvent with complete sender information
         NewMessageEvent newMessageEvent = NewMessageEvent.newBuilder()
                 .setMessageId(message.getMessageId())
                 .setConversationId(message.getConversationId())
                 .setSender(UserInfo.newBuilder()
                         .setUserId(message.getSenderId())
-                        .setUsername("User-" + message.getSenderId().substring(0, 8))
+                        .setUsername(senderUsername)
                         .build())
                 .setMessageText(message.getMessageText())
                 .setTimestamp(Timestamp.newBuilder()

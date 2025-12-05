@@ -1,0 +1,33 @@
+package com.chat.config;
+
+import io.grpc.BindableService;
+import io.grpc.ServerServiceDefinition;
+import io.grpc.protobuf.services.ProtoReflectionService;
+import org.lognet.springboot.grpc.GRpcService;
+
+/**
+ * gRPC Reflection Service
+ * 
+ * Enables gRPC Server Reflection API which allows tools like grpcurl
+ * to discover service definitions dynamically without needing .proto files.
+ * 
+ * This is essential for:
+ * - Testing with grpcurl: `grpcurl -plaintext localhost:9090 list`
+ * - Dynamic service discovery
+ * - Development and debugging
+ * 
+ * Production Note: Can be disabled in production for security,
+ * or kept enabled if you use reflection-based monitoring tools.
+ * 
+ * See: https://github.com/grpc/grpc/blob/master/doc/server-reflection.md
+ */
+@GRpcService
+public class GrpcReflectionConfig implements BindableService {
+    
+    private final BindableService protoReflectionService = ProtoReflectionService.newInstance();
+    
+    @Override
+    public ServerServiceDefinition bindService() {
+        return protoReflectionService.bindService();
+    }
+}

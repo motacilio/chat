@@ -4,7 +4,6 @@ import com.chat.dto.WebhookCallbackDto;
 import com.chat.kafka.v1.StateUpdateEvent;
 import com.chat.model.MessageStatus;
 import com.chat.service.PlatformMessageMappingService;
-import com.google.protobuf.util.Timestamps;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;

@@ -19,7 +19,7 @@ class ConversationTest {
         String user2 = "user2-id";
 
         // When
-        Conversation conversation = Conversation.createPrivate(conversationId, user1, user2);
+        Conversation conversation = Conversation.createPrivate(conversationId, user1, user2, user1);
 
         // Then
         assertNotNull(conversation);
@@ -36,10 +36,11 @@ class ConversationTest {
     void testCreateGroupConversation() {
         // Given
         String conversationId = "550e8400-e29b-41d4-a716-446655440001";
-        List<String> participants = List.of("user1", "user2", "user3", "user4");
+        String creator = "user1";
+        List<String> participants = List.of(creator, "user2", "user3", "user4");
 
         // When
-        Conversation conversation = Conversation.createGroup(conversationId, participants);
+        Conversation conversation = Conversation.createGroup(conversationId, participants, creator);
 
         // Then
         assertNotNull(conversation);
@@ -53,7 +54,7 @@ class ConversationTest {
     @Test
     void testIsParticipant() {
         // Given
-        Conversation conversation = Conversation.createPrivate("conv-id", "user1", "user2");
+        Conversation conversation = Conversation.createPrivate("conv-id", "user1", "user2", "user1");
 
         // When & Then
         assertTrue(conversation.isParticipant("user1"));

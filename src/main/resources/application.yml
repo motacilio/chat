@@ -139,3 +139,12 @@ resilience4j:
 # Webhook Base URL (for adapter callbacks)
 webhook:
   base-url: ${WEBHOOK_BASE_URL:http://localhost:8081}
+  
+  # WhatsApp Webhook Configuration
+  whatsapp:
+    secret-key: ${WHATSAPP_WEBHOOK_SECRET:whatsapp-test-secret-key-12345}
+    verify-token: ${WHATSAPP_VERIFY_TOKEN:whatsapp-verify-token-12345}
+  
+  # Telegram Webhook Configuration
+  telegram:
+    secret-token: ${TELEGRAM_WEBHOOK_SECRET:telegram-test-secret-key-12345}
